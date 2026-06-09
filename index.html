@@ -167,7 +167,7 @@ async function handleFile(storeId, input) {
 }
 
 async function autoLoadAll() {
-  const files = { promax_2: 'promax_2.db', promax_markaz: 'promax_markaz.db', promax_1: 'promax_1.db' };
+  const files = { promax_2: 'phone_2.db', promax_markaz: 'phone_markaz.db', promax_1: 'phone_1.db' };
   for (const [storeId, filename] of Object.entries(files)) {
     if (storeDbs[storeId]) continue;
     try {
