@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PRO MAX - Все магазины</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #fff; padding: 12px; min-height: 100dvh; -webkit-tap-highlight-color: transparent; }
+h1 { text-align: center; margin-bottom: 16px; font-size: 20px; color: #a78bfa; }
+
+.login-box { max-width: 300px; margin: 40px auto; background: #1e293b; padding: 24px; border-radius: 16px; }
+.login-box input { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 8px; border: 1px solid #64748b; background: #0f172a; color: #fff; font-size: 16px; -webkit-appearance: none; }
+.login-box button { width: 100%; padding: 12px; background: #7c3aed; color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
+.hidden { display: none !important; }
+
+.store-grid { display: grid; grid-template-columns: 1fr; gap: 16px; max-width: 500px; margin: 0 auto; }
+@media(min-width: 600px) { .store-grid { grid-template-columns: 1fr 1fr 1fr; max-width: 900px; } }
+.store-card { background: linear-gradient(135deg, #667eea, #764ba2); padding: 24px 16px; border-radius: 20px; text-align: center; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border: none; color: #fff; }
+.store-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(102,126,234,0.4); }
+.store-card .icon { font-size: 40px; margin-bottom: 12px; }
+.store-card .name { font-size: 18px; font-weight: bold; }
+.store-card .count { font-size: 13px; opacity: 0.9; margin-top: 8px; line-height: 1.5; }
+.store-card input[type="file"] { display: none; }
+.store-card .upload-btn { display: inline-block; margin-top: 12px; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 10px; font-size: 13px; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
+.store-card .upload-btn:active { background: rgba(255,255,255,0.3); }
+
+.back-btn { background: #1e293b; border: 1px solid #334155; color: #fff; padding: 10px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; margin-bottom: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.store-title { font-size: 22px; font-weight: bold; margin-bottom: 12px; color: #a78bfa; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.tab { flex: 1 1 calc(33% - 8px); min-width: 80px; padding: 10px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; color: #94a3b8; font-weight: bold; cursor: pointer; text-align: center; font-size: 12px; }
+.tab.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+.refresh-btn { display: block; width: 100%; padding: 12px; margin-bottom: 12px; background: #7c3aed; color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: bold; cursor: pointer; }
+.search-box { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 12px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 16px; -webkit-appearance: none; }
+
+.product { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #334155; gap: 6px; flex-wrap: wrap; background: #1e293b; }
+.product:last-child { border-bottom: none; }
+.product-name { font-size: 14px; flex: 1; min-width: 120px; }
+.badge { padding: 5px 12px; border-radius: 8px; font-weight: bold; font-size: 13px; white-space: nowrap; }
+.badge.sold { background: #450a0a; color: #f87171; border: 1px solid #f87171; }
+.badge.stock { background: #064e3b; color: #34d399; border: 1px solid #34d399; }
+
+.sale-item { padding: 12px 14px; border-bottom: 1px solid #334155; background: #1e293b; }
+.sale-item:last-child { border-bottom: none; }
+.sale-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.sale-product { font-weight: bold; color: #fff; font-size: 14px; }
+.sale-qty { background: #7c3aed; color: #fff; padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; }
+.sale-meta { color: #94a3b8; font-size: 12px; }
+
+.report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.report-card { padding: 20px 12px; border-radius: 16px; text-align: center; }
+.report-card .icon { font-size: 28px; margin-bottom: 8px; }
+.report-card .label { font-size: 12px; opacity: 0.8; margin-bottom: 6px; }
+.report-card .value { font-size: 20px; font-weight: bold; }
+
+.loading { text-align: center; padding: 30px; color: #94a3b8; }
+.error { text-align: center; padding: 30px; color: #f87171; }
+.updated { text-align: center; font-size: 11px; color: #64748b; margin-top: 8px; }
+
+#homeStatus { text-align: center; margin-bottom: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>📱 PRO MAX - Все магазины</h1>
+
+<div id="login" class="login-box">
+  <input type="text" id="username" placeholder="Логин" value="SANAT">
+  <input type="password" id="password" placeholder="Пароль" value="1993">
+  <button onclick="doLogin()">Войти</button>
+</div>
+
+<div id="home" class="hidden">
+  <div id="homeStatus"></div>
+  <div class="store-grid" id="storeGrid"></div>
+</div>
+
+<div id="storePage" class="hidden">
+  <button class="back-btn" onclick="goHome()">← Назад к магазинам</button>
+  <div class="store-title" id="storeTitle"></div>
+  <div class="tabs">
+    <div class="tab active" onclick="showStoreTab('stock')" id="tab-stock">📦 Остатки</div>
+    <div class="tab" onclick="showStoreTab('sales')" id="tab-sales">💰 Продажи</div>
+    <div class="tab" onclick="showStoreTab('debts')" id="tab-debts">💳 Долги</div>
+    <div class="tab" onclick="showStoreTab('reminders')" id="tab-reminders">🔔 Напоминания</div>
+    <div class="tab" onclick="showStoreTab('expenses')" id="tab-expenses">💸 Расходы</div>
+    <div class="tab" onclick="showStoreTab('barters')" id="tab-barters">🔄 Бартеры</div>
+    <div class="tab" onclick="showStoreTab('report')" id="tab-report">📊 Отчёт</div>
+  </div>
+  <button class="refresh-btn" onclick="renderStoreData()">🔄 Обновить</button>
+  <input type="text" class="search-box" id="storeSearch" placeholder="Поиск..." oninput="renderStoreData()">
+  <div id="storeContent"></div>
+  <div class="updated" id="storeUpdated"></div>
+</div>
+
+<script>
+const storeNames = {
+  'promax_2': 'PRO MAX - 2',
+  'promax_markaz': 'PRO MAX - MARKAZ',
+  'promax_1': 'PRO MAX - 53'
+};
+
+const users = { 'SANAT': '1993', 'ALISHER': '2026', 'SARDOR': '2027', 'BEXRUZ': '2028' };
+
+let currentUser = null;
+let currentStoreId = null;
+let currentStoreTab = 'stock';
+let SQL = null;
+let storeDbs = {}; // storeId -> {db, filename}
+
+async function initDb() {
+  if (SQL) return;
+  SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+}
+
+function doLogin() {
+  const u = document.getElementById('username').value.toUpperCase();
+  const p = document.getElementById('password').value;
+  if (users[u] && users[u] === p) {
+    currentUser = u;
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('home').classList.remove('hidden');
+    initDb().then(() => { autoLoadAll(); });
+  } else {
+    alert('Неверный логин или пароль');
+  }
+}
+
+function execToObjects(db, sql, params) {
+  try {
+    const stmt = db.prepare(sql);
+    if (params) stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+  } catch (e) {
+    console.error('SQL error:', sql, e);
+    return [];
+  }
+}
+
+function scalar(db, sql) {
+  const res = execToObjects(db, sql);
+  return res.length > 0 ? Object.values(res[0])[0] : 0;
+}
+
+async function handleFile(storeId, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('homeStatus');
+  if (statusEl) statusEl.innerHTML = `<span style="color:#94a3b8;">⏳ Загрузка ${storeNames[storeId]}...</span>`;
+  try {
+    await initDb();
+    const buf = await file.arrayBuffer();
+    const db = new SQL.Database(new Uint8Array(buf));
+    storeDbs[storeId] = { db, filename: file.name };
+    if (statusEl) statusEl.innerHTML = `<span style="color:#22c55e;">✅ ${storeNames[storeId]} загружен (${file.name})</span>`;
+    renderHome();
+  } catch (e) {
+    console.error(e);
+    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">❌ Ошибка: ${e.message}</span>`;
+    alert('Не удалось открыть файл базы: ' + e.message);
+  }
+  input.value = '';
+}
+
+async function autoLoadAll() {
+  const files = { promax_2: 'promax_2.db', promax_markaz: 'promax_markaz.db', promax_1: 'promax_1.db' };
+  for (const [storeId, filename] of Object.entries(files)) {
+    if (storeDbs[storeId]) continue;
+    try {
+      const resp = await fetch(filename);
+      if (!resp.ok) continue;
+      const buf = await resp.arrayBuffer();
+      const db = new SQL.Database(new Uint8Array(buf));
+      storeDbs[storeId] = { db, filename };
+    } catch (e) { /* ignore */ }
+  }
+  renderHome();
+}
+
+function renderHome() {
+  const grid = document.getElementById('storeGrid');
+  let html = '';
+  for (const [storeId, name] of Object.entries(storeNames)) {
+    const info = storeDbs[storeId];
+    let count = 0, qty = 0, val = 0;
+    if (info) {
+      count = scalar(info.db, "SELECT COUNT(*) FROM products WHERE quantity > 0") || 0;
+      qty = scalar(info.db, "SELECT COALESCE(SUM(quantity),0) FROM products WHERE quantity > 0") || 0;
+      val = scalar(info.db, "SELECT COALESCE(SUM(salePrice*quantity),0) FROM products WHERE quantity > 0") || 0;
+    }
+    const status = info
+      ? `${count} позиций • ${qty} шт. • ${Math.round(val).toLocaleString('ru-RU')} сум`
+      : 'База не загружена — нажми "📁 Загрузить базу"';
+    html += `<div class="store-card" onclick="openStore('${storeId}')">
+      <div class="icon">🏪</div>
+      <div class="name">${name}</div>
+      <div class="count">${status}</div>
+      <label class="upload-btn" onclick="event.stopPropagation();">
+        📁 Загрузить базу
+        <input type="file" accept=".db" onchange="handleFile('${storeId}', this)">
+      </label>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function openStore(storeId) {
+  if (!storeDbs[storeId]) {
+    alert('Сначала загрузите базу для этого магазина');
+    return;
+  }
+  currentStoreId = storeId;
+  document.getElementById('home').classList.add('hidden');
+  document.getElementById('storePage').classList.remove('hidden');
+  document.getElementById('storeTitle').textContent = storeNames[storeId] || storeId;
+  showStoreTab('stock');
+}
+
+function goHome() {
+  document.getElementById('storePage').classList.add('hidden');
+  document.getElementById('home').classList.remove('hidden');
+  renderHome();
+}
+
+function showStoreTab(tab) {
+  currentStoreTab = tab;
+  ['stock','sales','debts','reminders','expenses','barters','report'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
+  });
+  renderStoreData();
+}
+
+function renderStoreData() {
+  if (currentStoreTab === 'stock') renderStoreStock();
+  else if (currentStoreTab === 'sales') renderStoreSales();
+  else if (currentStoreTab === 'debts') renderStoreDebts();
+  else if (currentStoreTab === 'reminders') renderStoreReminders();
+  else if (currentStoreTab === 'expenses') renderStoreExpenses();
+  else if (currentStoreTab === 'barters') renderStoreBarters();
+  else renderStoreReport();
+  document.getElementById('storeUpdated').textContent = 'Обновлено: ' + new Date().toLocaleString('ru-RU');
+}
+
+function renderStoreStock() {
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  const db = storeDbs[currentStoreId].db;
+  let sql = "SELECT * FROM products WHERE quantity > 0";
+  if (query) sql += " AND (LOWER(name) LIKE '%" + query.replace(/'/g,"''") + "%' OR LOWER(barcode) LIKE '%" + query.replace(/'/g,"''") + "%' OR LOWER(imei) LIKE '%" + query.replace(/'/g,"''") + "%')";
+  sql += " ORDER BY name";
+  const list = execToObjects(db, sql);
+
+  if (list.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет товаров</div>';
+    return;
+  }
+
+  const categoryNames = { phone: '📱 Телефон', accessory: '🎧 Аксессуар', part: '🔧 Запчасть', drink: '🥤 Напитки', laptop: '💻 Ноутбук', tablet: '📟 Планшет' };
+  const catColors = { phone: '#a78bfa', accessory: '#38bdf8', part: '#fbbf24', drink: '#f472b6', energy: '#f59e0b', laptop: '#34d399', tablet: '#fb923c' };
+
+  const groups = {};
+  for (const p of list) {
+    const cat = p.category === 'energy' ? 'drink' : (p.category || 'unknown');
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(p);
+  }
+
+  const catOrder = ['phone','accessory','part','drink','laptop','tablet'];
+  let html = '';
+  for (const cat of catOrder) {
+    const items = groups[cat];
+    if (!items || items.length === 0) continue;
+    const catTotal = items.reduce((s, p) => s + (Number(p.salePrice)||0)*(Number(p.quantity)||0), 0);
+    const catQty = items.reduce((s, p) => s + (Number(p.quantity)||0), 0);
+    const catColor = catColors[cat] || '#a78bfa';
+    html += `<div style="background:#1e293b; border:1px solid ${catColor}44; border-radius:12px; margin-bottom:14px; overflow:hidden;">
+      <div style="background:${catColor}15; padding:12px 14px; border-bottom:2px solid ${catColor}; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+        <span style="font-weight:bold; font-size:15px; color:${catColor};">${categoryNames[cat] || cat}</span>
+        <span style="font-size:12px; color:#cbd5e1; font-weight:500;">${items.length} товаров • ${catQty} шт. • ${Math.round(catTotal).toLocaleString('ru-RU')} сум</span>
+      </div>`;
+    for (const p of items) {
+      const phoneInfo = p.category === 'phone' ? [p.capacity, p.ram, p.batteryHealth, p.imei].filter(Boolean).join(' • ') : '';
+      html += `<div class="product" style="border-bottom:1px solid #334155;">
+        <div style="flex:1; min-width:120px;">
+          <div class="product-name">${p.name || 'Без названия'}</div>
+          ${phoneInfo ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${phoneInfo}</div>` : ''}
+        </div>
+        <span class="badge stock">ОСТАТОК: ${Number(p.quantity)||0} шт. | Продажа: ${Math.round(Number(p.salePrice)||0).toLocaleString('ru-RU')} сум</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  // Остальные категории
+  for (const cat in groups) {
+    if (catOrder.includes(cat)) continue;
+    const items = groups[cat];
+    if (!items || items.length === 0) continue;
+    const catTotal = items.reduce((s, p) => s + (Number(p.salePrice)||0)*(Number(p.quantity)||0), 0);
+    const catQty = items.reduce((s, p) => s + (Number(p.quantity)||0), 0);
+    const catColor = catColors[cat] || '#a78bfa';
+    html += `<div style="background:#1e293b; border:1px solid ${catColor}44; border-radius:12px; margin-bottom:14px; overflow:hidden;">
+      <div style="background:${catColor}15; padding:12px 14px; border-bottom:2px solid ${catColor}; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+        <span style="font-weight:bold; font-size:15px; color:${catColor};">${categoryNames[cat] || cat}</span>
+        <span style="font-size:12px; color:#cbd5e1; font-weight:500;">${items.length} товаров • ${catQty} шт. • ${Math.round(catTotal).toLocaleString('ru-RU')} сум</span>
+      </div>`;
+    for (const p of items) {
+      const phoneInfo2 = p.category === 'phone' ? [p.capacity, p.ram, p.batteryHealth, p.imei].filter(Boolean).join(' • ') : '';
+      html += `<div class="product" style="border-bottom:1px solid #334155;">
+        <div style="flex:1; min-width:120px;">
+          <div class="product-name">${p.name || 'Без названия'}</div>
+          ${phoneInfo2 ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${phoneInfo2}</div>` : ''}
+        </div>
+        <span class="badge stock">ОСТАТОК: ${Number(p.quantity)||0} шт. | Продажа: ${Math.round(Number(p.salePrice)||0).toLocaleString('ru-RU')} сум</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreSales() {
+  const db = storeDbs[currentStoreId].db;
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  let sql = "SELECT * FROM sales WHERE type = 'sale' ORDER BY date DESC";
+  const list = execToObjects(db, sql);
+  let filtered = list;
+  if (query) {
+    filtered = list.filter(s => (
+      (s.productName || '').toLowerCase().includes(query) ||
+      (s.sellerName || '').toLowerCase().includes(query)
+    ));
+  }
+  if (filtered.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет продаж</div>';
+    return;
+  }
+
+  const dayGroups = {};
+  for (const s of filtered) {
+    const d = s.date ? new Date(s.date) : new Date(0);
+    const dayKey = d.toISOString().slice(0,10);
+    if (!dayGroups[dayKey]) dayGroups[dayKey] = { date: d, sales: [], total: 0, count: 0 };
+    dayGroups[dayKey].sales.push(s);
+    dayGroups[dayKey].total += Number(s.total) || 0;
+    dayGroups[dayKey].count += 1;
+  }
+
+  let html = '';
+  const dayKeys = Object.keys(dayGroups).sort().reverse();
+  for (const dk of dayKeys) {
+    const g = dayGroups[dk];
+    const dayLabel = g.date.toLocaleString('ru-RU', { day:'numeric', month:'long', year:'numeric', weekday:'short' });
+    html += `<div style="background:#1e293b; border:1px solid #334155; border-radius:12px; margin-bottom:10px; overflow:hidden;">
+      <div style="background:#0f172a; padding:8px 14px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:bold; font-size:13px;">${dayLabel}</span>
+        <span style="font-size:12px; color:#3b82f6; font-weight:bold;">${Math.round(g.total).toLocaleString('ru-RU')} сум • ${g.count} шт.</span>
+      </div>`;
+    for (const s of g.sales) {
+      const dt = s.date ? new Date(s.date).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '';
+      const amount = Number(s.total) || 0;
+      html += `<div class="sale-item" style="border-bottom:1px solid #334155;">
+        <div class="sale-header">
+          <span class="sale-product">${s.productName || 'Товар'}</span>
+          <span class="sale-qty">${Math.round(amount).toLocaleString('ru-RU')} сум</span>
+        </div>
+        <div class="sale-meta">${s.quantity || 1} шт. | Продажа: ${Math.round(Number(s.price)||0).toLocaleString('ru-RU')} сум | 👤 ${s.sellerName || '—'} | 🕐 ${dt}</div>
+        ${s.comment ? `<div style="margin-top:6px; padding:6px 10px; background:rgba(124,58,237,0.15); border:1px solid rgba(124,58,237,0.3); border-radius:8px; color:#c4b5fd; font-size:13px; font-weight:bold;">💬 ${s.comment}</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreDebts() {
+  const db = storeDbs[currentStoreId].db;
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  let sql = "SELECT * FROM debts ORDER BY date DESC";
+  const list = execToObjects(db, sql);
+  let filtered = query ? list.filter(d => (d.personName || '').toLowerCase().includes(query)) : list;
+  if (filtered.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет долгов</div>';
+    return;
+  }
+  let totalDebt = 0;
+  let html = '';
+  for (const d of filtered) {
+    const remaining = (Number(d.amount)||0) - (Number(d.paid)||0);
+    const isPaid = d.isPaid || remaining <= 0;
+    if (!isPaid) totalDebt += remaining;
+    const dt = d.date ? new Date(d.date).toLocaleDateString('ru-RU') : '';
+    html += `<div class="sale-item">
+      <div class="sale-header">
+        <span class="sale-product">${d.personName || 'Неизвестно'}</span>
+        <span class="sale-qty" style="background:${isPaid ? '#22c55e' : '#ef4444'};">${isPaid ? 'ОПЛАЧЕНО' : Math.round(remaining).toLocaleString('ru-RU') + ' сум'}</span>
+      </div>
+      <div class="sale-meta">📞 ${d.phone || '—'} | Всего: ${Math.round(Number(d.amount)||0).toLocaleString('ru-RU')} сум | Оплачено: ${Math.round(Number(d.paid)||0).toLocaleString('ru-RU')} сум | 📅 ${dt}</div>
+      ${d.description ? `<div class="sale-meta" style="margin-top:4px; color:#94a3b8;">📝 ${d.description}</div>` : ''}
+    </div>`;
+  }
+  if (totalDebt > 0) {
+    html = `<div style="text-align:center; margin-bottom:12px; padding:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:12px;">
+      <span style="color:#f87171; font-weight:bold; font-size:16px;">💳 Общая задолженность: ${Math.round(totalDebt).toLocaleString('ru-RU')} сум</span>
+    </div>` + html;
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreReminders() {
+  const db = storeDbs[currentStoreId].db;
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  let sql = "SELECT * FROM reminders ORDER BY date ASC";
+  const list = execToObjects(db, sql);
+  let filtered = query ? list.filter(r => (r.title || '').toLowerCase().includes(query)) : list;
+  if (filtered.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет напоминаний</div>';
+    return;
+  }
+  let html = '';
+  for (const r of filtered) {
+    const isDone = r.isDone || false;
+    const dt = r.date ? new Date(r.date).toLocaleString('ru-RU') : '';
+    html += `<div class="sale-item" style="opacity:${isDone ? 0.6 : 1};">
+      <div class="sale-header">
+        <span class="sale-product" style="text-decoration:${isDone ? 'line-through' : 'none'};">${r.title || 'Без названия'}</span>
+        <span class="sale-qty" style="background:${isDone ? '#22c55e' : '#f59e0b'};">${isDone ? '✅ Выполнено' : '⏳ Активно'}</span>
+      </div>
+      <div class="sale-meta">📅 ${dt}</div>
+      ${r.description ? `<div class="sale-meta" style="margin-top:4px; color:#94a3b8;">📝 ${r.description}</div>` : ''}
+    </div>`;
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreExpenses() {
+  const db = storeDbs[currentStoreId].db;
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  let sql = "SELECT * FROM expenses ORDER BY date DESC";
+  const list = execToObjects(db, sql);
+  let filtered = query ? list.filter(e => ((e.employeeName||'') + ' ' + (e.category||'')).toLowerCase().includes(query)) : list;
+  if (filtered.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет расходов</div>';
+    return;
+  }
+  let total = 0;
+  let html = '';
+  for (const e of filtered) {
+    total += Number(e.amount) || 0;
+    const dt = e.date ? new Date(e.date).toLocaleDateString('ru-RU') : '';
+    html += `<div class="sale-item">
+      <div class="sale-header">
+        <span class="sale-product">${e.employeeName || 'Неизвестно'}</span>
+        <span class="sale-qty" style="background:#ef4444;">${Math.round(Number(e.amount)||0).toLocaleString('ru-RU')} сум</span>
+      </div>
+      <div class="sale-meta">${e.category || 'Прочее'} | 📅 ${dt}</div>
+      ${e.description ? `<div class="sale-meta">📝 ${e.description}</div>` : ''}
+    </div>`;
+  }
+  if (total > 0) {
+    html = `<div style="text-align:center; margin-bottom:12px; padding:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:12px;">
+      <span style="color:#f87171; font-weight:bold; font-size:16px;">💸 Всего: ${Math.round(total).toLocaleString('ru-RU')} сум</span>
+    </div>` + html;
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreBarters() {
+  const db = storeDbs[currentStoreId].db;
+  const query = document.getElementById('storeSearch').value.toLowerCase();
+  let sql = "SELECT * FROM barters ORDER BY date DESC";
+  const list = execToObjects(db, sql);
+  let filtered = query ? list.filter(b => ((b.giveProductName||'') + ' ' + (b.receiveProductName||'')).toLowerCase().includes(query)) : list;
+  if (filtered.length === 0) {
+    document.getElementById('storeContent').innerHTML = '<div class="error">Нет бартеров</div>';
+    return;
+  }
+  let html = '';
+  for (const b of filtered) {
+    const dt = b.date ? new Date(b.date).toLocaleString('ru-RU') : '';
+    const diff = Number(b.cashDifference) || 0;
+    const diffColor = diff > 0 ? '#22c55e' : (diff < 0 ? '#ef4444' : '#94a3b8');
+    const diffText = diff > 0 ? `Клиент +${Math.round(diff).toLocaleString('ru-RU')} сум` : (diff < 0 ? `Мы +${Math.round(-diff).toLocaleString('ru-RU')} сум` : 'Без доплаты');
+    html += `<div class="sale-item">
+      <div class="sale-header">
+        <span class="sale-product">🔄 ${b.giveProductName || 'Товар'} ↔ ${b.receiveProductName || 'Товар'}</span>
+        <span class="sale-qty" style="background:${diffColor};">${diffText}</span>
+      </div>
+      <div class="sale-meta">📤 ${Math.round(Number(b.giveAmount)||0).toLocaleString('ru-RU')} сум | 📥 ${Math.round(Number(b.receiveAmount)||0).toLocaleString('ru-RU')} сум</div>
+      ${b.clientName ? `<div class="sale-meta">👤 ${b.clientName}${b.clientPhone ? ' | ' + b.clientPhone : ''}</div>` : ''}
+      ${b.description ? `<div class="sale-meta">📝 ${b.description}</div>` : ''}
+      <div class="sale-meta">🕐 ${dt}</div>
+    </div>`;
+  }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+function renderStoreReport() {
+  const db = storeDbs[currentStoreId].db;
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const sales = execToObjects(db, "SELECT * FROM sales WHERE type = 'sale' AND date >= ? AND date < ? ORDER BY date DESC", [monthStart.toISOString(), monthEnd.toISOString()]);
+  const expenses = execToObjects(db, "SELECT * FROM expenses WHERE date >= ? AND date < ? ORDER BY date DESC", [monthStart.toISOString(), monthEnd.toISOString()]);
+  const barters = execToObjects(db, "SELECT * FROM barters WHERE date >= ? AND date < ? ORDER BY date DESC", [monthStart.toISOString(), monthEnd.toISOString()]);
+
+  let totalSales = 0, totalCost = 0, totalProfit = 0, totalQty = 0;
+  let drinkSales = 0, drinkProfit = 0, drinkQty = 0;
+  const drinkNames = ['cola','fanta','sprite','lipton','pepsi'];
+  const energyNames = ['rockstar','adrenalin','red bull','flash'];
+
+  for (const s of sales) {
+    const qty = Number(s.quantity) || 1;
+    const price = Number(s.price) || 0;
+    const purchasePrice = Number(s.purchasePrice) || 0;
+    const total = Number(s.total) || (price * qty);
+    const profit = Number(s.profit) || ((price - purchasePrice) * qty);
+    totalSales += total;
+    totalCost += purchasePrice * qty;
+    totalProfit += profit;
+    totalQty += qty;
+    const pName = (s.productName || '').toLowerCase();
+    if (drinkNames.some(d => pName.includes(d)) || energyNames.some(d => pName.includes(d))) {
+      drinkSales += total;
+      drinkProfit += profit;
+      drinkQty += qty;
+    }
+  }
+
+  let totalExpenses = 0;
+  const expenseCategories = {};
+  for (const e of expenses) {
+    const amt = Number(e.amount) || 0;
+    totalExpenses += amt;
+    const cat = e.category || 'Прочее';
+    expenseCategories[cat] = (expenseCategories[cat] || 0) + amt;
+  }
+
+  const netProfit = totalProfit - totalExpenses;
+  const monthName = monthStart.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+
+  let html = `<div style="text-align:center; margin-bottom:16px; font-size:18px; font-weight:bold; color:#a78bfa;">${monthName}</div>`;
+  html += `<div class="report-grid">
+    <div class="report-card" style="background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4);">
+      <div class="icon" style="color:#3b82f6;">💰</div>
+      <div class="label" style="color:#93c5fd;">Выручка</div>
+      <div class="value" style="color:#3b82f6; font-size:16px;">${Math.round(totalSales).toLocaleString('ru-RU')} сум</div>
+    </div>
+    <div class="report-card" style="background:rgba(249,115,22,0.15); border:1px solid rgba(249,115,22,0.4);">
+      <div class="icon" style="color:#f97316;">📦</div>
+      <div class="label" style="color:#fdba74;">Себестоимость</div>
+      <div class="value" style="color:#f97316; font-size:16px;">${Math.round(totalCost).toLocaleString('ru-RU')} сум</div>
+    </div>
+    <div class="report-card" style="background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4);">
+      <div class="icon" style="color:#22c55e;">📈</div>
+      <div class="label" style="color:#86efac;">Прибыль</div>
+      <div class="value" style="color:#22c55e; font-size:16px;">${Math.round(totalProfit).toLocaleString('ru-RU')} сум</div>
+    </div>
+    <div class="report-card" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4);">
+      <div class="icon" style="color:#ef4444;">💳</div>
+      <div class="label" style="color:#fca5a5;">Расходы</div>
+      <div class="value" style="color:#ef4444; font-size:16px;">${Math.round(totalExpenses).toLocaleString('ru-RU')} сум</div>
+    </div>
+  </div>`;
+
+  if (drinkSales > 0) {
+    html += `<div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3); border-radius:16px; padding:14px; margin:12px 0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div><div style="font-size:13px; color:#60a5fa; font-weight:bold;">🥤 НАПИТКИ & ЭНЕРГЕТИКИ</div><div style="font-size:11px; color:#94a3b8;">${drinkQty} шт. продано</div></div>
+        <div style="text-align:right;"><div style="font-size:16px; font-weight:bold; color:#3b82f6;">${Math.round(drinkSales).toLocaleString('ru-RU')} сум</div><div style="font-size:11px; color:#22c55e;">Прибыль: ${Math.round(drinkProfit).toLocaleString('ru-RU')} сум</div></div>
+      </div>
+    </div>`;
+  }
+
+  const netColor = netProfit >= 0 ? '#22c55e' : '#ef4444';
+  const netBg = netProfit >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+  const netBorder = netProfit >= 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
+  html += `<div style="background:${netBg}; border:1px solid ${netBorder}; border-radius:16px; padding:16px; margin:16px 0; text-align:center;">
+    <div style="font-size:13px; color:#94a3b8; margin-bottom:4px;">💎 ЧИСТАЯ ПРИБЫЛЬ</div>
+    <div style="font-size:28px; font-weight:bold; color:${netColor};">${Math.round(netProfit).toLocaleString('ru-RU')} сум</div>
+  </div>`;
+
+  if (expenses.length > 0) {
+    html += `<div style="margin-top:16px;"><div style="color:#ef4444; font-weight:bold; margin-bottom:8px; font-size:14px;">📊 Расходы по категориям:</div>`;
+    for (const [cat, amount] of Object.entries(expenseCategories).sort((a,b) => b[1] - a[1])) {
+      html += `<div class="sale-item"><div class="sale-header"><span class="sale-product">${cat}</span><span class="sale-qty" style="background:#ef4444;">${Math.round(amount).toLocaleString('ru-RU')} сум</span></div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (barters.length > 0) {
+    html += `<div style="margin-top:16px;"><div style="color:#f59e0b; font-weight:bold; margin-bottom:8px; font-size:14px;">🔄 Бартеры:</div>`;
+    for (const b of barters) {
+      const diff = Number(b.cashDifference) || 0;
+      const diffColor = diff > 0 ? '#22c55e' : (diff < 0 ? '#ef4444' : '#94a3b8');
+      const diffText = diff > 0 ? `Клиент +${Math.round(diff).toLocaleString('ru-RU')} сум` : (diff < 0 ? `Мы +${Math.round(-diff).toLocaleString('ru-RU')} сум` : 'Без доплаты');
+      html += `<div class="sale-item"><div class="sale-header"><span class="sale-product">${b.giveProductName || 'Товар'} ↔ ${b.receiveProductName || 'Товар'}</span><span class="sale-qty" style="background:${diffColor};">${diffText}</span></div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (sales.length === 0 && expenses.length === 0 && barters.length === 0) {
+    html += '<div class="error">Нет данных в этом месяце</div>';
+  }
+
+  document.getElementById('storeContent').innerHTML = html;
+}
+</script>
+</body>
+</html>
