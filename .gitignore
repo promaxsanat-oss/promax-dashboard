@@ -1,0 +1,9 @@
+# Firebase
+.firebase/
+.firebaserc
+firebase.json
+
+# Token & scripts
+.github_token
+update-dashboard.ps1
+Обновить дашборд.bat
