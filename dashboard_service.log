@@ -1,0 +1,18 @@
+2026-06-13T18:16:55.516097 START exe=C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\phone_shop_promax_markaz.exe
+2026-06-13T18:16:55.517099 storeId=promax_markaz
+2026-06-13T18:16:57.482649 RESET origin/main OK
+2026-06-13T18:16:57.483736 OWN phone_markaz.db (folder PROMAX-MARKAZ_NEW) -> C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db
+2026-06-13T18:16:57.494084 COPIED phone_markaz.db from C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db size=131072
+2026-06-13T18:16:59.308798 PUSH OK attempt=1
+2026-06-13T18:18:55.514106 START exe=C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\phone_shop_promax_markaz.exe
+2026-06-13T18:18:55.525583 storeId=promax_markaz
+2026-06-13T18:18:56.799880 RESET origin/main OK
+2026-06-13T18:18:56.800965 OWN phone_markaz.db (folder PROMAX-MARKAZ_NEW) -> C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db
+2026-06-13T18:18:56.810868 COPIED phone_markaz.db from C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db size=131072
+2026-06-13T18:18:58.616511 PUSH OK attempt=1
+2026-06-13T18:20:55.518025 START exe=C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\phone_shop_promax_markaz.exe
+2026-06-13T18:20:55.519273 storeId=promax_markaz
+2026-06-13T18:20:56.830460 RESET origin/main OK
+2026-06-13T18:20:56.831869 OWN phone_markaz.db (folder PROMAX-MARKAZ_NEW) -> C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db
+2026-06-13T18:20:56.842149 COPIED phone_markaz.db from C:\Users\user\Desktop\PROMAX-MARKAZ_NEW\.dart_tool\sqflite_common_ffi\databases\phone_shop.db size=131072
+2026-06-13T18:20:58.658904 PUSH OK attempt=1
