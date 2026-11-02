@@ -257,6 +257,7 @@ body {
     <div class="tab" onclick="showStoreTab('barters')" id="tab-barters">🔄 Бартеры</div>
     <div class="tab" onclick="showStoreTab('reminders')" id="tab-reminders">🔔 Напоминания</div>
     <div class="tab" onclick="showStoreTab('report')" id="tab-report">📊 Отчёт</div>
+    <div class="tab" onclick="showStoreTab('sellers')" id="tab-sellers">🏆 Продавцы</div>
   </div>
   <div class="controls">
     <input type="text" class="search-box" id="storeSearch" placeholder="Поиск..." oninput="renderStoreData()">
@@ -298,6 +299,8 @@ let storeDbs = {};       // storeId -> { db, filename, loadedAt }
 let refreshTimer = null;
 let chartInstance = null;
 let reportOffset = 0;   // 0 = текущий месяц, -1 = прошлый и т.д.
+let sellerMonthOffset = 0; // месяц для рейтинга продавцов
+const SELLER_BONUS_PCT = 5; // % от прибыли продавцу за месяц
 
 /* ================== Утилиты ================== */
 const fmt = n => Math.round(Number(n) || 0).toLocaleString('ru-RU');
@@ -577,6 +580,9 @@ function renderAdminAnalytics() {
   // --- Ходовые товары (30 дней) и продажи для «залежавшихся» (60 дней) ---
   const topMap = {};          // name -> {qty, total}
   const soldRecently = {};    // storeId -> Set(productId) за 60 дней
+  const sellerMap = {};       // продавец -> {cnt, qty, rev, prof} за текущий месяц (все магазины)
+  const mStart = localISO(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0));
+  const mEnd = localISO(new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0));
 
   for (const [storeId, name] of Object.entries(storeNames)) {
     const info = storeDbs[storeId];
@@ -593,6 +599,15 @@ function renderAdminAnalytics() {
       topMap[k].qty += Number(r.q) || 0; topMap[k].total += Number(r.t) || 0;
     }
     soldRecently[storeId] = new Set(execToObjects(info.db, "SELECT DISTINCT productId FROM sales WHERE date >= ?", [ago(60)]).map(r => r.productId));
+    const sellersM = execToObjects(info.db,
+      "SELECT sellerName, COUNT(*) cnt, COALESCE(SUM(quantity),0) qty, COALESCE(SUM(total),0) rev, COALESCE(SUM(profit),0) prof " +
+      "FROM sales WHERE type='sale' AND date >= ? AND date < ? GROUP BY sellerName", [mStart, mEnd]);
+    for (const r of sellersM) {
+      const k = (r.sellerName || '—').trim().toUpperCase();
+      if (!sellerMap[k]) sellerMap[k] = { cnt: 0, qty: 0, rev: 0, prof: 0 };
+      sellerMap[k].cnt += Number(r.cnt) || 0; sellerMap[k].qty += Number(r.qty) || 0;
+      sellerMap[k].rev += Number(r.rev) || 0; sellerMap[k].prof += Number(r.prof) || 0;
+    }
   }
 
   const maxDay = Math.max(1, ...days.map(d => d.total));
@@ -619,6 +634,30 @@ function renderAdminAnalytics() {
     html += '<div class="card"><div class="card-head"><span>🔥 Ходовые товары</span><span class="badge b-green">30 дней</span></div>';
     top.forEach(([nm, v], i) => {
       html += `<div class="row"><span class="nm">${i + 1}. ${esc(nm)}</span><span class="badge b-green">${v.qty} шт • ${fmt(v.total)} сум</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  // --- Конкурс продавцов месяца (все магазины, бонус 5% от прибыли) ---
+  const sellerRows = Object.entries(sellerMap).sort((a, b) => b[1].prof - a[1].prof);
+  if (sellerRows.length > 0) {
+    const medals = ['🥇', '🥈', '🥉'];
+    const maxProf = Math.max(1, ...sellerRows.map(([, v]) => v.prof));
+    const monthName = now.toLocaleString('ru-RU', { month: 'long' });
+    html += '<div class="card"><div class="card-head"><span>🏆 Конкурс продавцов — ' + esc(monthName) + '</span><span class="badge b-amber">5% от прибыли</span></div>';
+    sellerRows.forEach(([nm, v], i) => {
+      const bonus = v.prof * SELLER_BONUS_PCT / 100;
+      const w = Math.round(v.prof / maxProf * 100);
+      html += `<div class="row" style="display:block;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <span class="nm">${medals[i] || (i + 1) + '.'} ${esc(nm)}</span>
+          <span class="badge ${i === 0 ? 'b-amber' : 'b-violet'}">прибыль ${fmt(v.prof)} сум</span>
+        </div>
+        <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);margin-top:6px;">
+          <div style="height:6px;border-radius:3px;width:${w}%;background:linear-gradient(90deg,#f59e0b,#8b5cf6);"></div>
+        </div>
+        <div class="meta">${v.cnt} продаж • ${v.qty} шт &nbsp;|&nbsp; 💰 Бонус: <b style="color:#4ade80">${fmt(bonus)} сум</b></div>
+      </div>`;
     });
     html += '</div>';
   }
@@ -670,7 +709,7 @@ function goHome() {
 }
 function showStoreTab(tab) {
   currentStoreTab = tab;
-  ['stock','sales','cash','debts','expenses','barters','reminders','report'].forEach(t => {
+  ['stock','sales','cash','debts','expenses','barters','reminders','report','sellers'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
   });
   renderStoreData();
@@ -697,6 +736,7 @@ function renderStoreData() {
     else if (currentStoreTab === 'expenses') renderStoreExpenses();
     else if (currentStoreTab === 'barters') renderStoreBarters();
     else if (currentStoreTab === 'reminders') renderStoreReminders();
+    else if (currentStoreTab === 'sellers') renderStoreSellers();
     else renderStoreReport();
   } catch (e) {
     console.error(e);
@@ -1269,6 +1309,68 @@ function drawSalesChart(byDay, base) {
       maintainAspectRatio: true
     }
   });
+}
+
+/* ---------- Продавцы: рейтинг за месяц + бонус 5% от прибыли ---------- */
+function shiftSellerMonth(d) {
+  sellerMonthOffset = Math.min(0, sellerMonthOffset + d);
+  renderStoreSellers();
+}
+
+function renderStoreSellers() {
+  const db = storeDbs[currentStoreId].db;
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth() + sellerMonthOffset, 1);
+  const monthStart = localISO(new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0));
+  const monthEnd = localISO(new Date(base.getFullYear(), base.getMonth() + 1, 1, 0, 0, 0));
+  const monthName = base.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+
+  const rows = execToObjects(db,
+    "SELECT sellerName, COUNT(*) cnt, COALESCE(SUM(quantity),0) qty, COALESCE(SUM(total),0) rev, COALESCE(SUM(profit),0) prof " +
+    "FROM sales WHERE type = 'sale' AND date >= ? AND date < ? GROUP BY sellerName ORDER BY prof DESC", [monthStart, monthEnd]);
+
+  const medals = ['🥇', '🥈', '🥉'];
+  const maxProf = Math.max(1, ...rows.map(r => Number(r.prof) || 0));
+
+  let html = `<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:16px;">
+    <button class="icon-btn" style="padding:8px 16px;" onclick="shiftSellerMonth(-1)">◀</button>
+    <div style="font-size:18px;font-weight:800;color:#a78bfa;min-width:170px;text-align:center;">🏆 ${monthName}</div>
+    <button class="icon-btn" style="padding:8px 16px;${sellerMonthOffset >= 0 ? 'opacity:.35;pointer-events:none;' : ''}" onclick="shiftSellerMonth(1)">▶</button>
+  </div>`;
+
+  if (rows.length === 0) {
+    html += '<div class="empty">🏆 За этот месяц продаж нет</div>';
+    document.getElementById('storeContent').innerHTML = html;
+    return;
+  }
+
+  // Победитель месяца
+  const best = rows[0];
+  html += `<div class="net-profit" style="background:linear-gradient(135deg,rgba(251,191,36,0.14),rgba(139,92,246,0.12));border:1px solid rgba(251,191,36,0.4);margin-top:0;">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">👑 ЛУЧШИЙ ПРОДАВЕЦ МЕСЯЦА</div>
+    <div style="font-size:26px;font-weight:800;color:#fbbf24;">${esc(best.sellerName) || '—'}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">Прибыль ${fmt(best.prof)} сум • бонус 5% = ${fmt((Number(best.prof) || 0) * SELLER_BONUS_PCT / 100)} сум</div>
+  </div>`;
+
+  html += '<div class="card"><div class="card-head"><span>📊 Рейтинг продавцов</span><span class="badge b-violet">бонус = 5% от прибыли</span></div>';
+  rows.forEach((r, i) => {
+    const prof = Number(r.prof) || 0;
+    const bonus = prof * SELLER_BONUS_PCT / 100;
+    const w = Math.round(prof / maxProf * 100);
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm">${medals[i] || (i + 1) + '.'} ${esc(r.sellerName) || '—'}</span>
+        <span class="badge ${i === 0 ? 'b-amber' : 'b-violet'}">${fmt(prof)} сум прибыли</span>
+      </div>
+      <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);margin-top:6px;">
+        <div style="height:6px;border-radius:3px;width:${w}%;background:linear-gradient(90deg,#f59e0b,#8b5cf6);"></div>
+      </div>
+      <div class="meta">${r.cnt} продаж • ${Number(r.qty) || 0} шт • выручка ${fmt(r.rev)} сум &nbsp;|&nbsp; 💰 Бонус 5%: <b style="color:#4ade80">${fmt(bonus)} сум</b></div>
+    </div>`;
+  });
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;">ℹ️ Бонус считается автоматически: 5% от прибыли, которую принёс продавец за выбранный месяц.</div>';
+  document.getElementById('storeContent').innerHTML = html;
 }
 </script>
 </body>
