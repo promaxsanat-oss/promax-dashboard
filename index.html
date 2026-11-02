@@ -237,6 +237,8 @@ body {
     <div id="globalResults" style="margin-top:12px;"></div>
   </div>
   <div class="store-grid" id="storeGrid"></div>
+  <!-- Аналитика для админа: выручка по дням, ходовые и залежавшиеся товары -->
+  <div id="adminAnalytics" style="max-width:900px;margin:16px auto 0;"></div>
 </div>
 
 <!-- STORE -->
@@ -453,8 +455,15 @@ function renderGlobalSearch() {
       "WHERE LOWER(name) LIKE '%" + qs + "%' OR LOWER(imei) LIKE '%" + qs + "%' OR LOWER(barcode) LIKE '%" + qs + "%' " +
       "ORDER BY CASE WHEN LOWER(imei) = '" + qs + "' OR LOWER(barcode) = '" + qs + "' THEN 0 " +
       "WHEN quantity > 0 THEN 1 ELSE 2 END, name LIMIT 50");
-    if (rows.length === 0) continue;
-    totalFound += rows.length;
+    // История продаж по IMEI/штрихкоду — сохраняется навсегда, даже для проданных
+    const history = execToObjects(info.db,
+      "SELECT s.productName, s.total, s.quantity, s.date, s.sellerName, s.comment, p.imei, p.barcode FROM sales s " +
+      "JOIN products p ON p.id = s.productId " +
+      "WHERE s.type = 'sale' AND (LOWER(p.imei) LIKE '%" + qs + "%' OR LOWER(p.barcode) LIKE '%" + qs + "%') " +
+      "ORDER BY s.date DESC LIMIT 20");
+
+    if (rows.length === 0 && history.length === 0) continue;
+    totalFound += rows.length + history.length;
     const inStock = rows.filter(r => (Number(r.quantity) || 0) > 0).length;
     html += `<div class="card">
       <div class="card-head"><span>🏪 ${esc(name)}</span>
@@ -469,6 +478,19 @@ function renderGlobalSearch() {
         </div>
         <span class="badge ${qty > 0 ? 'b-green' : 'b-red'}">${qty > 0 ? 'В НАЛИЧИИ: ' + qty + ' шт. • ' + fmt(p.salePrice) + ' сум' : 'ПРОДАН / НЕТ'}</span>
       </div>`;
+    }
+    if (history.length > 0) {
+      html += '<div class="card-head" style="background:rgba(139,92,246,0.08);"><span>🕐 История продаж (IMEI сохраняется навсегда)</span><span class="badge b-violet">' + history.length + '</span></div>';
+      for (const h of history) {
+        html += `<div class="row" style="display:block;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span class="nm">${esc(h.productName) || 'Товар'}</span>
+            <span class="badge b-violet">ПРОДАН за ${fmt(h.total)} сум</span>
+          </div>
+          <div class="meta">📅 ${fmtDate(h.date)} ${fmtTime(h.date)} &nbsp;|&nbsp; 👤 ${esc(h.sellerName) || '—'}${h.imei ? ' &nbsp;|&nbsp; IMEI: ' + esc(h.imei) : ''}</div>
+          ${h.comment ? '<div class="meta">💬 ' + esc(h.comment) + '</div>' : ''}
+        </div>`;
+      }
     }
     html += '</div>';
   }
@@ -531,6 +553,104 @@ function renderHome() {
     <div class="net-card"><div class="v" style="color:#4ade80">${fmt(netVal)}</div><div class="l">сум — товар на складах</div></div>
     <div class="net-card"><div class="v" style="color:#60a5fa">${netQty}</div><div class="l">штук всего (${netCount} позиций)</div></div>
     <div class="net-card"><div class="v" style="color:#a78bfa">${loaded}/3</div><div class="l">магазинов онлайн</div></div>`;
+
+  renderAdminAnalytics();
+}
+
+/* ================== Аналитика для админа (по всем магазинам) ================== */
+function renderAdminAnalytics() {
+  const box = document.getElementById('adminAnalytics');
+  if (!box) return;
+  if (currentUser !== 'SANAT') { box.innerHTML = ''; return; }
+
+  const now = new Date();
+  const ago = days => localISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, 0, 0, 0));
+
+  // --- Выручка по дням (последние 7 дней, все магазины) ---
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12, 0, 0);
+    days.push({ key: dayKey(d.toISOString()), label: d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', weekday: 'short' }), total: 0, perStore: {} });
+  }
+  const dayMap = Object.fromEntries(days.map(d => [d.key, d]));
+
+  // --- Ходовые товары (30 дней) и продажи для «залежавшихся» (60 дней) ---
+  const topMap = {};          // name -> {qty, total}
+  const soldRecently = {};    // storeId -> Set(productId) за 60 дней
+
+  for (const [storeId, name] of Object.entries(storeNames)) {
+    const info = storeDbs[storeId];
+    if (!info) continue;
+    const sales7 = execToObjects(info.db, "SELECT date, total FROM sales WHERE type='sale' AND date >= ?", [ago(7)]);
+    for (const s of sales7) {
+      const d = dayMap[dayKey(s.date)];
+      if (d) { d.total += Number(s.total) || 0; d.perStore[name] = (d.perStore[name] || 0) + (Number(s.total) || 0); }
+    }
+    const top30 = execToObjects(info.db, "SELECT productName, SUM(quantity) q, SUM(total) t FROM sales WHERE type='sale' AND date >= ? GROUP BY productName", [ago(30)]);
+    for (const r of top30) {
+      const k = (r.productName || 'Товар').trim();
+      if (!topMap[k]) topMap[k] = { qty: 0, total: 0 };
+      topMap[k].qty += Number(r.q) || 0; topMap[k].total += Number(r.t) || 0;
+    }
+    soldRecently[storeId] = new Set(execToObjects(info.db, "SELECT DISTINCT productId FROM sales WHERE date >= ?", [ago(60)]).map(r => r.productId));
+  }
+
+  const maxDay = Math.max(1, ...days.map(d => d.total));
+  let html = '<div class="card"><div class="card-head"><span>📅 Выручка по дням (все магазины)</span><span class="badge b-blue">7 дней</span></div>';
+  for (const d of days) {
+    const w = Math.round(d.total / maxDay * 100);
+    const perStore = Object.entries(d.perStore).map(([n, v]) => n.replace('PRO MAX — ', '') + ': ' + fmt(v)).join(' • ');
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm" style="min-width:110px;">${d.label}</span>
+        <span class="badge ${d.total > 0 ? 'b-green' : 'b-blue'}">${d.total > 0 ? fmt(d.total) + ' сум' : '—'}</span>
+      </div>
+      <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);margin-top:6px;">
+        <div style="height:6px;border-radius:3px;width:${w}%;background:linear-gradient(90deg,#8b5cf6,#3b82f6);"></div>
+      </div>
+      ${perStore ? '<div class="sub2" style="margin-top:4px;">' + esc(perStore) + '</div>' : ''}
+    </div>`;
+  }
+  html += '</div>';
+
+  // --- Ходовые товары ---
+  const top = Object.entries(topMap).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+  if (top.length > 0) {
+    html += '<div class="card"><div class="card-head"><span>🔥 Ходовые товары</span><span class="badge b-green">30 дней</span></div>';
+    top.forEach(([nm, v], i) => {
+      html += `<div class="row"><span class="nm">${i + 1}. ${esc(nm)}</span><span class="badge b-green">${v.qty} шт • ${fmt(v.total)} сум</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  // --- Мало продаётся (в наличии, без продаж 60+ дней) ---
+  const slow = [];
+  for (const [storeId, name] of Object.entries(storeNames)) {
+    const info = storeDbs[storeId];
+    if (!info) continue;
+    const stock = execToObjects(info.db, 'SELECT id, name, quantity, salePrice, updatedAt FROM products WHERE quantity > 0');
+    const recent = soldRecently[storeId] || new Set();
+    for (const p of stock) {
+      if (recent.has(p.id)) continue;
+      const daysIdle = p.updatedAt ? Math.max(0, Math.floor((now - new Date(p.updatedAt)) / 86400000)) : 999;
+      slow.push({ name: p.name, qty: p.quantity, val: (Number(p.salePrice) || 0) * (Number(p.quantity) || 0), daysIdle, store: name.replace('PRO MAX — ', '') });
+    }
+  }
+  slow.sort((a, b) => b.val - a.val);
+  if (slow.length > 0) {
+    const slowVal = slow.reduce((s, x) => s + x.val, 0);
+    html += `<div class="card"><div class="card-head"><span>🐌 Мало продаётся (60+ дней)</span><span class="badge b-red">${slow.length} поз. • ${fmt(slowVal)} сум заморожено</span></div>`;
+    for (const x of slow.slice(0, 7)) {
+      html += `<div class="row">
+        <div style="flex:1;min-width:140px;"><div class="nm">${esc(x.name) || 'Товар'}</div><div class="sub2">${esc(x.store)} • без движения ~${x.daysIdle} дн.</div></div>
+        <span class="badge b-red">${x.qty} шт • ${fmt(x.val)} сум</span>
+      </div>`;
+    }
+    if (slow.length > 7) html += '<div class="row" style="justify-content:center;color:var(--muted);font-size:12px;">…и ещё ' + (slow.length - 7) + ' позиций</div>';
+    html += '</div>';
+  }
+
+  box.innerHTML = html;
 }
 
 /* ================== Страница магазина ================== */
@@ -709,22 +829,43 @@ function classifyPayment(comment, total) {
   const nums = (c.replace(/[^\d\s]/g, ' ').match(/\d[\d\s]*\d|\d/g) || [])
     .map(s => Number(s.replace(/\s/g, '')))
     .filter(n => n > 1000);
-  const part = nums.find(n => n < total) || 0;
-
   const t = Number(total) || 0;
+  // Сумма рядом с ключевым словом: ближайшая к цене продажи (0.3×–1.6×)
+  let part = 0;
+  for (const n of nums) {
+    if (n >= t * 0.3 && n <= t * 1.6 && (part === 0 || Math.abs(n - t) < Math.abs(part - t))) part = n;
+  }
+  // Явный процент в комментарии: "ishonch 10%"
+  const pctMatch = c.match(/(\d{1,2})\s*%/);
+
   if (hasCredit && !hasTransfer) {
     const label = company.toUpperCase();
-    if (part > 0) return { cash: t - part, transfer: 0, credit: part, company, label: 'СМЕШ + ' + label, cls: 'b-amber' };
-    return { cash: 0, transfer: 0, credit: t, company, label: 'КРЕДИТ: ' + label, cls: 'b-amber' };
+    if (part > t) { // кредит с наценкой: сумма больше цены — разница = процент
+      const mk = part - t;
+      const pct = Math.round(mk / t * 1000) / 10;
+      return { cash: 0, transfer: 0, credit: part, markup: mk, company, label: 'КРЕДИТ: ' + label + ' +' + pct + '%', cls: 'b-amber' };
+    }
+    if (part > 0) { // частичный кредит (половина кредит, половина нал)
+      return { cash: t - part, transfer: 0, credit: part, markup: 0, company, label: 'СМЕШ + ' + label, cls: 'b-amber' };
+    }
+    if (pctMatch) { // написан только процент — наценку считаем сами
+      const mk = Math.round(t * Number(pctMatch[1]) / 100);
+      return { cash: 0, transfer: 0, credit: t + mk, markup: mk, company, label: 'КРЕДИТ: ' + label + ' +' + pctMatch[1] + '%', cls: 'b-amber' };
+    }
+    return { cash: 0, transfer: 0, credit: t, markup: 0, company, label: 'КРЕДИТ: ' + label, cls: 'b-amber' };
   }
   if (hasTransfer && !hasCredit) {
-    if (part > 0) return { cash: t - part, transfer: part, credit: 0, company: null, label: 'СМЕШ + ПЕРЕВОД', cls: 'b-blue' };
-    return { cash: 0, transfer: t, credit: 0, company: null, label: 'ПЕРЕВОД', cls: 'b-blue' };
+    if (part > 0 && part < t) return { cash: t - part, transfer: part, credit: 0, markup: 0, company: null, label: 'СМЕШ + ПЕРЕВОД', cls: 'b-blue' };
+    return { cash: 0, transfer: t, credit: 0, markup: 0, company: null, label: 'ПЕРЕВОД', cls: 'b-blue' };
   }
   if (hasCredit && hasTransfer) {
-    return { cash: 0, transfer: 0, credit: t, company, label: 'КРЕДИТ: ' + company.toUpperCase(), cls: 'b-amber' };
+    if (part > t) {
+      const mk = part - t;
+      return { cash: 0, transfer: 0, credit: part, markup: mk, company, label: 'КРЕДИТ: ' + company.toUpperCase(), cls: 'b-amber' };
+    }
+    return { cash: 0, transfer: 0, credit: t, markup: 0, company, label: 'КРЕДИТ: ' + company.toUpperCase(), cls: 'b-amber' };
   }
-  return { cash: t, transfer: 0, credit: 0, company: null, label: 'НАЛИЧНЫЕ', cls: 'b-green' };
+  return { cash: t, transfer: 0, credit: 0, markup: 0, company: null, label: 'НАЛИЧНЫЕ', cls: 'b-green' };
 }
 
 function renderStoreCash() {
@@ -735,15 +876,15 @@ function renderStoreCash() {
     "SELECT s.*, p.category AS pcategory FROM sales s LEFT JOIN products p ON p.id = s.productId WHERE s.type = 'sale' ORDER BY s.date DESC");
   const expenses = execToObjects(db, 'SELECT * FROM expenses ORDER BY date DESC');
 
-  let cashIn = 0, transferIn = 0, creditOut = 0;
+  let cashIn = 0, transferIn = 0, creditOut = 0, markupTotal = 0;
   const rows = [];
   const byDept = {};       // отдел -> {cash, transfer, credit, count}
-  const byCompany = {};    // кредитная компания -> {sum, count}
-  const bySeller = {};     // сотрудник -> {sum, count} (только кредитные продажи)
+  const byCompany = {};    // кредитная компания -> {sum, count, markup}
+  const bySeller = {};     // сотрудник -> {sum, count, markup} (только кредитные продажи)
   for (const s of sales) {
     const total = Number(s.total) || 0;
     const p = classifyPayment(s.comment, total);
-    cashIn += p.cash; transferIn += p.transfer; creditOut += p.credit;
+    cashIn += p.cash; transferIn += p.transfer; creditOut += p.credit; markupTotal += p.markup || 0;
     rows.push({ s, p });
 
     const cat = s.pcategory === 'energy' ? 'drink' : (s.pcategory || 'other');
@@ -752,11 +893,11 @@ function renderStoreCash() {
 
     if (p.credit > 0) {
       const comp = p.company || 'Кредит';
-      if (!byCompany[comp]) byCompany[comp] = { sum: 0, count: 0 };
-      byCompany[comp].sum += p.credit; byCompany[comp].count++;
+      if (!byCompany[comp]) byCompany[comp] = { sum: 0, count: 0, markup: 0 };
+      byCompany[comp].sum += p.credit; byCompany[comp].count++; byCompany[comp].markup += p.markup || 0;
       const seller = s.sellerName || '—';
-      if (!bySeller[seller]) bySeller[seller] = { sum: 0, count: 0 };
-      bySeller[seller].sum += p.credit; bySeller[seller].count++;
+      if (!bySeller[seller]) bySeller[seller] = { sum: 0, count: 0, markup: 0 };
+      bySeller[seller].sum += p.credit; bySeller[seller].count++; bySeller[seller].markup += p.markup || 0;
     }
   }
   const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
@@ -815,7 +956,13 @@ function renderStoreCash() {
     for (const [comp, d] of Object.entries(byCompany).sort((a, b) => b[1].sum - a[1].sum)) {
       html += `<div class="row">
         <span class="nm">${compIcons[comp] || '📝'} ${esc(comp)}</span>
-        <span class="badge b-amber">${d.count} шт • ${fmt(d.sum)} сум</span>
+        <span class="badge b-amber">${d.count} шт • ${fmt(d.sum)} сум${d.markup > 0 ? ' • наценка +' + fmt(d.markup) : ''}</span>
+      </div>`;
+    }
+    if (markupTotal > 0) {
+      html += `<div class="row" style="background:rgba(251,191,36,0.07);">
+        <span class="nm" style="color:#fbbf24;">📈 Всего заработано на процентах</span>
+        <span class="badge b-amber">+${fmt(markupTotal)} сум</span>
       </div>`;
     }
     html += '</div>';
@@ -827,7 +974,7 @@ function renderStoreCash() {
     for (const [seller, d] of Object.entries(bySeller).sort((a, b) => b[1].sum - a[1].sum)) {
       html += `<div class="row">
         <span class="nm">👤 ${esc(seller)}</span>
-        <span class="badge b-violet">${d.count} раз • ${fmt(d.sum)} сум</span>
+        <span class="badge b-violet">${d.count} раз • ${fmt(d.sum)} сум${d.markup > 0 ? ' • наценка +' + fmt(d.markup) : ''}</span>
       </div>`;
     }
     html += '</div>';
@@ -845,7 +992,7 @@ function renderStoreCash() {
     const parts = [];
     if (p.cash > 0) parts.push('нал ' + fmt(p.cash));
     if (p.transfer > 0) parts.push('перевод ' + fmt(p.transfer));
-    if (p.credit > 0) parts.push('кредит ' + fmt(p.credit));
+    if (p.credit > 0) parts.push('кредит ' + fmt(p.credit) + (p.markup > 0 ? ' (наценка +' + fmt(p.markup) + ')' : ''));
     html += `<div class="row" style="display:block;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
         <span class="nm">${esc(s.productName) || 'Товар'}</span>
