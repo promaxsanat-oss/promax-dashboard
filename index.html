@@ -520,6 +520,8 @@ function startAutoRefresh() {
 
 /* ================== Главная ================== */
 function renderHome() {
+  if (currentUser === 'SHOXRUX') { renderLaptopOnlyHome(); return; } // SHOXRUX видит только ноутбуки
+  document.getElementById('storeGrid').style.display = '';
   const grid = document.getElementById('storeGrid');
   let html = '';
   let netVal = 0, netQty = 0, netCount = 0, loaded = 0;
@@ -1492,6 +1494,105 @@ function renderStoreSellers() {
     html += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;">ℹ️ Бонус считается автоматически: 5% от прибыли, которую принёс продавец за выбранный месяц. Видно только админу.</div>';
   }
   document.getElementById('storeContent').innerHTML = html;
+}
+
+/* ================== SHOXRUX: экран только с ноутбуками ================== */
+function renderLaptopOnlyHome() {
+  const grid = document.getElementById('storeGrid');
+  grid.style.display = 'block';
+  document.getElementById('adminAnalytics').innerHTML = '';
+
+  let cashIn = 0, transferIn = 0, creditOut = 0, saleCount = 0, soldQty = 0;
+  let stockQty = 0, stockVal = 0;
+  const lapMonths = {};   // 'YYYY-MM' -> шт
+  const stockRows = [];   // остатки ноутбуков
+  const saleRows = [];    // последние продажи ноутбуков
+  const FUND_PER_PC = 50000;
+
+  for (const [storeId, name] of Object.entries(storeNames)) {
+    const info = storeDbs[storeId];
+    if (!info) continue;
+    const db = info.db;
+
+    const prods = execToObjects(db, "SELECT * FROM products WHERE category = 'laptop'");
+    for (const p of prods) {
+      const q = Number(p.quantity) || 0;
+      if (q <= 0) continue;
+      stockQty += q; stockVal += q * (Number(p.salePrice) || 0);
+      stockRows.push({ store: name, p });
+    }
+
+    const sales = execToObjects(db,
+      "SELECT s.* FROM sales s LEFT JOIN products p ON p.id = s.productId WHERE s.type = 'sale' AND p.category = 'laptop' ORDER BY s.date DESC");
+    for (const s of sales) {
+      const q = Number(s.quantity) || 1;
+      const pay = classifyPayment(s.comment, Number(s.total) || 0);
+      cashIn += pay.cash; transferIn += pay.transfer; creditOut += pay.credit;
+      saleCount++; soldQty += q;
+      const mk = String(s.date || '').slice(0, 7);
+      if (mk.length === 7) lapMonths[mk] = (lapMonths[mk] || 0) + q;
+      saleRows.push({ store: name, s, q });
+    }
+  }
+
+  const fundTotal = soldQty * FUND_PER_PC;
+  const fundHalf = Math.round(fundTotal / 2);
+
+  document.getElementById('netSummary').innerHTML = `
+    <div class="net-card"><div class="v" style="color:#60a5fa">${stockQty}</div><div class="l">💻 ноутбуков на складе (${fmt(stockVal)} сум)</div></div>
+    <div class="net-card"><div class="v" style="color:#4ade80">${fmt(cashIn)}</div><div class="l">сум — касса ноутбуков (наличные)</div></div>
+    <div class="net-card"><div class="v" style="color:#a78bfa">${fmt(fundHalf)}</div><div class="l">сум — мой фонд (SHOXRUX)</div></div>`;
+
+  let html = `<div class="net-profit" style="background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(139,92,246,0.12));border:1px solid rgba(96,165,250,0.35);margin-top:0;">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">💻 ОТДЕЛ НОУТБУКОВ — SHOXRUX & SANAT</div>
+    <div style="font-size:24px;font-weight:800;color:#60a5fa;">${saleCount} продаж • ${soldQty} шт</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">💵 нал ${fmt(cashIn)} сум &nbsp;|&nbsp; 💳 перевод ${fmt(transferIn)} сум &nbsp;|&nbsp; 📝 кредит ${fmt(creditOut)} сум</div>
+  </div>`;
+
+  // Фонд и история по месяцам
+  html += `<div class="card"><div class="card-head"><span>💰 Фонд с продаж ноутбуков</span><span class="badge b-violet">${fmt(fundTotal)} сум</span></div>
+    <div class="row"><span class="nm">50 000 сум × ${soldQty} шт, делим пополам</span><span class="badge b-green">SHOXRUX ${fmt(fundHalf)} • SANAT ${fmt(fundHalf)}</span></div>`;
+  const monthKeys = Object.keys(lapMonths).sort().reverse();
+  for (const mk of monthKeys) {
+    const cnt = lapMonths[mk];
+    const mFund = cnt * FUND_PER_PC;
+    const mHalf = Math.round(mFund / 2);
+    const pp = mk.split('-');
+    const mName = new Date(Number(pp[0]), Number(pp[1]) - 1, 1).toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm" style="text-transform:capitalize;">🗓 ${mName}</span>
+        <span class="badge b-violet">${cnt} шт • фонд ${fmt(mFund)} сум</span>
+      </div>
+      <div class="meta">👤 SHOXRUX: <b style="color:#4ade80">${fmt(mHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(mHalf)} сум</b></div>
+    </div>`;
+  }
+  html += '</div>';
+
+  // Остатки ноутбуков
+  html += '<div class="card"><div class="card-head"><span>📦 Остатки ноутбуков</span><span class="badge b-blue">' + stockRows.length + ' позиций</span></div>';
+  if (stockRows.length === 0) html += '<div class="empty">Ноутбуков на складе пока нет</div>';
+  for (const { store, p } of stockRows) {
+    html += `<div class="row">
+      <span class="nm">💻 ${esc(p.name)}<div class="meta">🏪 ${esc(store)}${p.ram ? ' • ' + esc(p.ram) : ''}${p.capacity ? ' • ' + esc(p.capacity) : ''}</div></span>
+      <span class="badge b-green">${p.quantity} шт • ${fmt(p.salePrice)} сум</span>
+    </div>`;
+  }
+  html += '</div>';
+
+  // Продажи ноутбуков
+  saleRows.sort((a, b) => String(b.s.date).localeCompare(String(a.s.date)));
+  html += '<div class="card"><div class="card-head"><span>🧾 Продажи ноутбуков</span><span class="badge b-violet">' + saleRows.length + '</span></div>';
+  if (saleRows.length === 0) html += '<div class="empty">Продаж ноутбуков пока нет</div>';
+  for (const { store, s, q } of saleRows.slice(0, 100)) {
+    html += `<div class="row">
+      <span class="nm">${esc(s.productName)}<div class="meta">🏪 ${esc(store)} &nbsp;|&nbsp; 👤 ${esc(s.sellerName) || '—'} &nbsp;|&nbsp; 📅 ${fmtDate(s.date)} ${fmtTime(s.date)}</div></span>
+      <span class="badge b-green">${q} шт • ${fmt(s.total)} сум</span>
+    </div>`;
+  }
+  html += '</div>';
+
+  grid.innerHTML = html;
 }
 </script>
 </body>
