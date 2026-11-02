@@ -989,7 +989,49 @@ function renderStoreCash() {
     html += '</div>';
   }
 
-  // ----- Кредиты по компаниям -----
+  // ----- Отдельные кассы: напитки и ноутбуки -----
+  const drinkD = byDept['drink'];
+  html += '<div class="card"><div class="card-head"><span>🥤 Касса напитков</span><span class="badge b-green">' + (drinkD ? fmt(drinkD.cash) + ' сум нал' : '0 сум') + '</span></div>';
+  if (drinkD) {
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm">🥤 Напитки (энергетики)</span>
+        <span class="badge b-green">💵 ${fmt(drinkD.cash)} сум</span>
+      </div>
+      <div class="meta">${drinkD.count} продаж${drinkD.transfer > 0 ? ' • 💳 перевод ' + fmt(drinkD.transfer) + ' сум' : ''}${drinkD.credit > 0 ? ' • 📝 кредит ' + fmt(drinkD.credit) + ' сум' : ''}</div>
+    </div>`;
+  } else {
+    html += '<div class="empty">Продаж напитков пока нет</div>';
+  }
+  html += '</div>';
+
+  const lapD = byDept['laptop'];
+  const LAPTOP_FUND_PER_SALE = 50000; // 50 000 сум с каждой продажи ноутбука
+  const lapCount = lapD ? lapD.count : 0;
+  const lapFund = lapCount * LAPTOP_FUND_PER_SALE;
+  const lapFundHalf = Math.round(lapFund / 2);
+  html += '<div class="card"><div class="card-head"><span>💻 Касса ноутбуков</span><span class="badge b-green">' + (lapD ? fmt(lapD.cash) + ' сум нал' : '0 сум') + '</span></div>';
+  if (lapD) {
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm">💻 Ноутбуки</span>
+        <span class="badge b-green">💵 ${fmt(lapD.cash)} сум</span>
+      </div>
+      <div class="meta">${lapD.count} продаж${lapD.transfer > 0 ? ' • 💳 перевод ' + fmt(lapD.transfer) + ' сум' : ''}${lapD.credit > 0 ? ' • 📝 кредит ' + fmt(lapD.credit) + ' сум' : ''}</div>
+    </div>`;
+  } else {
+    html += '<div class="empty">Продаж ноутбуков пока нет</div>';
+  }
+  if (currentUser === 'SANAT') {
+    html += `<div class="row" style="display:block;background:rgba(139,92,246,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm">💰 Фонд с продаж ноутбуков</span>
+        <span class="badge b-violet">${fmt(lapFund)} сум</span>
+      </div>
+      <div class="meta">50 000 сум × ${lapCount} продаж &nbsp;|&nbsp; 👤 SHOXRUX: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b></div>
+    </div>`;
+  }
+  html += '</div>';
   if (Object.keys(byCompany).length > 0) {
     const compIcons = { 'Ishonch': '🤝', 'Uzum': '🟣', 'Alif': '🟢', 'Кредит': '📝' };
     html += '<div class="card"><div class="card-head"><span>🏦 Кредиты по компаниям</span><span class="badge b-amber">' + fmt(creditOut) + ' сум</span></div>';
@@ -1319,6 +1361,7 @@ function shiftSellerMonth(d) {
 
 function renderStoreSellers() {
   const db = storeDbs[currentStoreId].db;
+  const isAdmin = currentUser === 'SANAT'; // прибыль, проценты и бонусы видит только админ
   const now = new Date();
   const base = new Date(now.getFullYear(), now.getMonth() + sellerMonthOffset, 1);
   const monthStart = localISO(new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0));
@@ -1327,10 +1370,11 @@ function renderStoreSellers() {
 
   const rows = execToObjects(db,
     "SELECT sellerName, COUNT(*) cnt, COALESCE(SUM(quantity),0) qty, COALESCE(SUM(total),0) rev, COALESCE(SUM(profit),0) prof " +
-    "FROM sales WHERE type = 'sale' AND date >= ? AND date < ? GROUP BY sellerName ORDER BY prof DESC", [monthStart, monthEnd]);
+    "FROM sales WHERE type = 'sale' AND date >= ? AND date < ? GROUP BY sellerName ORDER BY " + (isAdmin ? "prof" : "rev") + " DESC", [monthStart, monthEnd]);
 
   const medals = ['🥇', '🥈', '🥉'];
-  const maxProf = Math.max(1, ...rows.map(r => Number(r.prof) || 0));
+  const key = isAdmin ? 'prof' : 'rev'; // сотрудникам рейтинг по выручке, прибыль скрыта
+  const maxVal = Math.max(1, ...rows.map(r => Number(r[key]) || 0));
 
   let html = `<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:16px;">
     <button class="icon-btn" style="padding:8px 16px;" onclick="shiftSellerMonth(-1)">◀</button>
@@ -1349,27 +1393,31 @@ function renderStoreSellers() {
   html += `<div class="net-profit" style="background:linear-gradient(135deg,rgba(251,191,36,0.14),rgba(139,92,246,0.12));border:1px solid rgba(251,191,36,0.4);margin-top:0;">
     <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">👑 ЛУЧШИЙ ПРОДАВЕЦ МЕСЯЦА</div>
     <div style="font-size:26px;font-weight:800;color:#fbbf24;">${esc(best.sellerName) || '—'}</div>
-    <div style="font-size:12px;color:var(--muted);margin-top:4px;">Прибыль ${fmt(best.prof)} сум • бонус 5% = ${fmt((Number(best.prof) || 0) * SELLER_BONUS_PCT / 100)} сум</div>
+    ${isAdmin
+      ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;">Прибыль ${fmt(best.prof)} сум • бонус 5% = ${fmt((Number(best.prof) || 0) * SELLER_BONUS_PCT / 100)} сум</div>`
+      : `<div style="font-size:12px;color:var(--muted);margin-top:4px;">${best.cnt} продаж • выручка ${fmt(best.rev)} сум</div>`}
   </div>`;
 
-  html += '<div class="card"><div class="card-head"><span>📊 Рейтинг продавцов</span><span class="badge b-violet">бонус = 5% от прибыли</span></div>';
+  html += '<div class="card"><div class="card-head"><span>📊 Рейтинг продавцов</span><span class="badge b-violet">' + (isAdmin ? 'бонус = 5% от прибыли' : 'по выручке за месяц') + '</span></div>';
   rows.forEach((r, i) => {
-    const prof = Number(r.prof) || 0;
-    const bonus = prof * SELLER_BONUS_PCT / 100;
-    const w = Math.round(prof / maxProf * 100);
+    const val = Number(r[key]) || 0;
+    const bonus = (Number(r.prof) || 0) * SELLER_BONUS_PCT / 100;
+    const w = Math.round(val / maxVal * 100);
     html += `<div class="row" style="display:block;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
         <span class="nm">${medals[i] || (i + 1) + '.'} ${esc(r.sellerName) || '—'}</span>
-        <span class="badge ${i === 0 ? 'b-amber' : 'b-violet'}">${fmt(prof)} сум прибыли</span>
+        <span class="badge ${i === 0 ? 'b-amber' : 'b-violet'}">${fmt(val)} сум ${isAdmin ? 'прибыли' : 'выручки'}</span>
       </div>
       <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);margin-top:6px;">
         <div style="height:6px;border-radius:3px;width:${w}%;background:linear-gradient(90deg,#f59e0b,#8b5cf6);"></div>
       </div>
-      <div class="meta">${r.cnt} продаж • ${Number(r.qty) || 0} шт • выручка ${fmt(r.rev)} сум &nbsp;|&nbsp; 💰 Бонус 5%: <b style="color:#4ade80">${fmt(bonus)} сум</b></div>
+      <div class="meta">${r.cnt} продаж • ${Number(r.qty) || 0} шт${isAdmin ? ' • выручка ' + fmt(r.rev) + ' сум &nbsp;|&nbsp; 💰 Бонус 5%: <b style="color:#4ade80">' + fmt(bonus) + ' сум</b>' : ''}</div>
     </div>`;
   });
   html += '</div>';
-  html += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;">ℹ️ Бонус считается автоматически: 5% от прибыли, которую принёс продавец за выбранный месяц.</div>';
+  if (isAdmin) {
+    html += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;">ℹ️ Бонус считается автоматически: 5% от прибыли, которую принёс продавец за выбранный месяц. Видно только админу.</div>';
+  }
   document.getElementById('storeContent').innerHTML = html;
 }
 </script>
