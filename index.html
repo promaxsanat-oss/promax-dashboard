@@ -921,6 +921,7 @@ function renderStoreCash() {
   const byDept = {};       // отдел -> {cash, transfer, credit, count}
   const byCompany = {};    // кредитная компания -> {sum, count, markup}
   const bySeller = {};     // сотрудник -> {sum, count, markup} (только кредитные продажи)
+  const lapMonths = {};    // 'YYYY-MM' -> кол-во продаж ноутбуков (для истории фонда)
   for (const s of sales) {
     const total = Number(s.total) || 0;
     const p = classifyPayment(s.comment, total);
@@ -930,6 +931,10 @@ function renderStoreCash() {
     const cat = s.pcategory === 'energy' ? 'drink' : (s.pcategory || 'other');
     if (!byDept[cat]) byDept[cat] = { cash: 0, transfer: 0, credit: 0, count: 0 };
     byDept[cat].cash += p.cash; byDept[cat].transfer += p.transfer; byDept[cat].credit += p.credit; byDept[cat].count++;
+    if (cat === 'laptop') {
+      const mk = String(s.date || '').slice(0, 7);
+      if (mk.length === 7) lapMonths[mk] = (lapMonths[mk] || 0) + 1;
+    }
 
     if (p.credit > 0) {
       const comp = p.company || 'Кредит';
@@ -1030,6 +1035,24 @@ function renderStoreCash() {
       </div>
       <div class="meta">50 000 сум × ${lapCount} продаж &nbsp;|&nbsp; 👤 SHOXRUX: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b></div>
     </div>`;
+    const lapMonthKeys = Object.keys(lapMonths).sort().reverse();
+    if (lapMonthKeys.length > 0) {
+      html += '<div class="row" style="padding-bottom:2px;"><span class="nm" style="color:var(--muted);font-size:12px;">📅 Фонд по месяцам</span></div>';
+      for (const mk of lapMonthKeys) {
+        const cnt = lapMonths[mk];
+        const mFund = cnt * LAPTOP_FUND_PER_SALE;
+        const mHalf = Math.round(mFund / 2);
+        const parts2 = mk.split('-');
+        const mName = new Date(Number(parts2[0]), Number(parts2[1]) - 1, 1).toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+        html += `<div class="row" style="display:block;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span class="nm" style="text-transform:capitalize;">🗓 ${mName}</span>
+            <span class="badge b-violet">${cnt} продаж • фонд ${fmt(mFund)} сум</span>
+          </div>
+          <div class="meta">👤 SHOXRUX: <b style="color:#4ade80">${fmt(mHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(mHalf)} сум</b></div>
+        </div>`;
+      }
+    }
   }
   html += '</div>';
   if (Object.keys(byCompany).length > 0) {
