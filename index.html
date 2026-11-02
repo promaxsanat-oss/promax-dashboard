@@ -279,10 +279,11 @@ const storeFiles = { promax_1: 'phone_1.db', promax_2: 'phone_2.db', promax_mark
 
 // Пароли хранятся только в виде SHA-256 хэшей (не открытым текстом)
 const userHashes = {
-  'SANAT':   '8e71b24534e9f3fb3a71263359fed2b7ffb008265e0d34383e319f1b6f5c08f2',
-  'ALISHER': '158a323a7ba44870f23d96f1516dd70aa48e9a72db4ebb026b0a89e212a208ab',
-  'SARDOR':  '5313e5bf17148de844ff74be3663d47c6e361ca469b30a36337701233c89a15e',
-  'BEXRUZ':  '6ae9e4d22c4670b9140fc378214b3274fb3f64d16058717f974515000680b24c'
+  'SANAT':    '8e71b24534e9f3fb3a71263359fed2b7ffb008265e0d34383e319f1b6f5c08f2',
+  'SAMIR':    '158a323a7ba44870f23d96f1516dd70aa48e9a72db4ebb026b0a89e212a208ab',
+  'JAHONGIR': '5313e5bf17148de844ff74be3663d47c6e361ca469b30a36337701233c89a15e',
+  'SHOXRUX':  '8f0f97e140e126a4404a09eb1e14a53b7c742701c4290a5d1702d14daec22ee8',
+  'BEXRUZ':   '6ae9e4d22c4670b9140fc378214b3274fb3f64d16058717f974515000680b24c'
 };
 
 const AUTO_REFRESH_MS = 120000; // 2 минуты — как у службы синхронизации
@@ -687,10 +688,20 @@ function renderStoreSales() {
 // Поэтому расчёт приблизительный: ищем ключевые слова и сумму рядом с ними.
 function classifyPayment(comment, total) {
   const c = (' ' + (comment || '').toLowerCase() + ' ');
-  const creditWords = ['ishonch', 'kredit', 'кредит', 'nasiya', 'nassiya', 'rassroch', 'рассроч', 'dolg', 'долг', 'qarz'];
-  const transferWords = ['clik', 'click', 'kilk', 'klik', 'perevod', 'перевод', 'payme', 'uzum', 'karta', 'карт', 'terminal'];
+  // Кредитные компании: Ishonch, Uzum Nasiya, Alif — каждая копится отдельно
+  const creditCompanies = [
+    { name: 'Ishonch', words: ['ishonch'] },
+    { name: 'Uzum', words: ['uzum'] },
+    { name: 'Alif', words: ['alif'] },
+    { name: 'Кредит', words: ['kredit', 'кредит', 'nasiya', 'nassiya', 'rassroch', 'рассроч', 'dolg', 'долг', 'qarz'] }
+  ];
+  const transferWords = ['clik', 'click', 'kilk', 'klik', 'perevod', 'перевод', 'payme', 'karta', 'карт', 'terminal'];
   const cashWords = ['nalichi', 'налич', 'cash'];
-  const hasCredit = creditWords.some(w => c.includes(w));
+  let company = null;
+  for (const cc of creditCompanies) {
+    if (cc.words.some(w => c.includes(w))) { company = cc.name; break; }
+  }
+  const hasCredit = company !== null;
   const hasTransfer = transferWords.some(w => c.includes(w));
   const hasCash = cashWords.some(w => c.includes(w));
 
@@ -702,32 +713,51 @@ function classifyPayment(comment, total) {
 
   const t = Number(total) || 0;
   if (hasCredit && !hasTransfer) {
-    if (part > 0) return { cash: t - part, transfer: 0, credit: part, label: 'СМЕШ + КРЕДИТ', cls: 'b-amber' };
-    return { cash: 0, transfer: 0, credit: t, label: 'КРЕДИТ', cls: 'b-amber' };
+    const label = company.toUpperCase();
+    if (part > 0) return { cash: t - part, transfer: 0, credit: part, company, label: 'СМЕШ + ' + label, cls: 'b-amber' };
+    return { cash: 0, transfer: 0, credit: t, company, label: 'КРЕДИТ: ' + label, cls: 'b-amber' };
   }
   if (hasTransfer && !hasCredit) {
-    if (part > 0) return { cash: t - part, transfer: part, credit: 0, label: 'СМЕШ + ПЕРЕВОД', cls: 'b-blue' };
-    return { cash: 0, transfer: t, credit: 0, label: 'ПЕРЕВОД', cls: 'b-blue' };
+    if (part > 0) return { cash: t - part, transfer: part, credit: 0, company: null, label: 'СМЕШ + ПЕРЕВОД', cls: 'b-blue' };
+    return { cash: 0, transfer: t, credit: 0, company: null, label: 'ПЕРЕВОД', cls: 'b-blue' };
   }
   if (hasCredit && hasTransfer) {
-    return { cash: 0, transfer: 0, credit: t, label: 'КРЕДИТ/ПЕРЕВОД', cls: 'b-amber' };
+    return { cash: 0, transfer: 0, credit: t, company, label: 'КРЕДИТ: ' + company.toUpperCase(), cls: 'b-amber' };
   }
-  return { cash: t, transfer: 0, credit: 0, label: hasCash ? 'НАЛИЧНЫЕ' : 'НАЛИЧНЫЕ', cls: 'b-green' };
+  return { cash: t, transfer: 0, credit: 0, company: null, label: 'НАЛИЧНЫЕ', cls: 'b-green' };
 }
 
 function renderStoreCash() {
   const db = storeDbs[currentStoreId].db;
   const query = searchQuery();
-  let sales = execToObjects(db, "SELECT * FROM sales WHERE type = 'sale' ORDER BY date DESC");
+  // Категория товара для разбивки кассы по отделам
+  let sales = execToObjects(db,
+    "SELECT s.*, p.category AS pcategory FROM sales s LEFT JOIN products p ON p.id = s.productId WHERE s.type = 'sale' ORDER BY s.date DESC");
   const expenses = execToObjects(db, 'SELECT * FROM expenses ORDER BY date DESC');
 
   let cashIn = 0, transferIn = 0, creditOut = 0;
   const rows = [];
+  const byDept = {};       // отдел -> {cash, transfer, credit, count}
+  const byCompany = {};    // кредитная компания -> {sum, count}
+  const bySeller = {};     // сотрудник -> {sum, count} (только кредитные продажи)
   for (const s of sales) {
     const total = Number(s.total) || 0;
     const p = classifyPayment(s.comment, total);
     cashIn += p.cash; transferIn += p.transfer; creditOut += p.credit;
     rows.push({ s, p });
+
+    const cat = s.pcategory === 'energy' ? 'drink' : (s.pcategory || 'other');
+    if (!byDept[cat]) byDept[cat] = { cash: 0, transfer: 0, credit: 0, count: 0 };
+    byDept[cat].cash += p.cash; byDept[cat].transfer += p.transfer; byDept[cat].credit += p.credit; byDept[cat].count++;
+
+    if (p.credit > 0) {
+      const comp = p.company || 'Кредит';
+      if (!byCompany[comp]) byCompany[comp] = { sum: 0, count: 0 };
+      byCompany[comp].sum += p.credit; byCompany[comp].count++;
+      const seller = s.sellerName || '—';
+      if (!bySeller[seller]) bySeller[seller] = { sum: 0, count: 0 };
+      bySeller[seller].sum += p.credit; bySeller[seller].count++;
+    }
   }
   const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const kassa = cashIn - totalExpenses;
@@ -751,13 +781,57 @@ function renderStoreCash() {
   <div class="report-grid">
     <div class="report-card"><div class="icon">💵</div><div class="label">Наличные (всего)</div><div class="value" style="color:#4ade80;">${fmt(cashIn)} сум</div></div>
     <div class="report-card"><div class="icon">💳</div><div class="label">Перевод (Click/карта)</div><div class="value" style="color:#60a5fa;">${fmt(transferIn)} сум</div></div>
-    <div class="report-card"><div class="icon">📝</div><div class="label">Кредит (ishonch)</div><div class="value" style="color:#fbbf24;">${fmt(creditOut)} сум</div></div>
+    <div class="report-card"><div class="icon">📝</div><div class="label">Кредит (всего)</div><div class="value" style="color:#fbbf24;">${fmt(creditOut)} сум</div></div>
     <div class="report-card"><div class="icon">💸</div><div class="label">Расходы (всего)</div><div class="value" style="color:#f87171;">${fmt(totalExpenses)} сум</div></div>
   </div>
   <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:14px;">
-    ℹ️ Расчёт по комментариям к продажам (ishonch / clik / перевод) — приблизительный.
+    ℹ️ Расчёт по комментариям к продажам — приблизительный.
     Сегодня: нал ${fmt(todayCash)} • перевод ${fmt(todayTransfer)} • кредит ${fmt(todayCredit)} • расход ${fmt(todayExpenses)}
   </div>`;
+
+  // ----- Касса по отделам -----
+  const deptNames = { phone: '📱 Телефоны', laptop: '💻 Ноутбуки', part: '🔧 Запчасти', accessory: '🎧 Аксессуары', drink: '🥤 Напитки', tablet: '📟 Планшеты', other: '📦 Прочее' };
+  const deptOrder = ['phone', 'laptop', 'part', 'accessory', 'drink', 'tablet', 'other'];
+  const depts = deptOrder.filter(c => byDept[c]).concat(Object.keys(byDept).filter(c => !deptOrder.includes(c)));
+  if (depts.length > 0) {
+    html += '<div class="card"><div class="card-head"><span>🏢 Касса по отделам</span><span class="badge b-violet">наличные без расходов</span></div>';
+    for (const c of depts) {
+      const d = byDept[c];
+      html += `<div class="row" style="display:block;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <span class="nm">${deptNames[c] || esc(c)}</span>
+          <span class="badge b-green">💵 ${fmt(d.cash)} сум</span>
+        </div>
+        <div class="meta">${d.count} продаж${d.transfer > 0 ? ' • 💳 перевод ' + fmt(d.transfer) : ''}${d.credit > 0 ? ' • 📝 кредит ' + fmt(d.credit) : ''}</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  // ----- Кредиты по компаниям -----
+  if (Object.keys(byCompany).length > 0) {
+    const compIcons = { 'Ishonch': '🤝', 'Uzum': '🟣', 'Alif': '🟢', 'Кредит': '📝' };
+    html += '<div class="card"><div class="card-head"><span>🏦 Кредиты по компаниям</span><span class="badge b-amber">' + fmt(creditOut) + ' сум</span></div>';
+    for (const [comp, d] of Object.entries(byCompany).sort((a, b) => b[1].sum - a[1].sum)) {
+      html += `<div class="row">
+        <span class="nm">${compIcons[comp] || '📝'} ${esc(comp)}</span>
+        <span class="badge b-amber">${d.count} шт • ${fmt(d.sum)} сум</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  // ----- Кредиты по сотрудникам -----
+  if (Object.keys(bySeller).length > 0) {
+    html += '<div class="card"><div class="card-head"><span>👥 Кто сколько пробил по кредиту</span></div>';
+    for (const [seller, d] of Object.entries(bySeller).sort((a, b) => b[1].sum - a[1].sum)) {
+      html += `<div class="row">
+        <span class="nm">👤 ${esc(seller)}</span>
+        <span class="badge b-violet">${d.count} раз • ${fmt(d.sum)} сум</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
 
   let filtered = rows;
   if (query) filtered = rows.filter(({ s }) =>
