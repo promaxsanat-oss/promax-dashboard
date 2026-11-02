@@ -1038,10 +1038,10 @@ function renderStoreCash() {
     for (const [comp, d] of Object.entries(byCompany).sort((a, b) => b[1].sum - a[1].sum)) {
       html += `<div class="row">
         <span class="nm">${compIcons[comp] || '📝'} ${esc(comp)}</span>
-        <span class="badge b-amber">${d.count} шт • ${fmt(d.sum)} сум${d.markup > 0 ? ' • наценка +' + fmt(d.markup) : ''}</span>
+        <span class="badge b-amber">${d.count} шт • ${fmt(d.sum)} сум${d.markup > 0 && currentUser === 'SANAT' ? ' • наценка +' + fmt(d.markup) : ''}</span>
       </div>`;
     }
-    if (markupTotal > 0) {
+    if (markupTotal > 0 && currentUser === 'SANAT') {
       html += `<div class="row" style="background:rgba(251,191,36,0.07);">
         <span class="nm" style="color:#fbbf24;">📈 Всего заработано на процентах</span>
         <span class="badge b-amber">+${fmt(markupTotal)} сум</span>
@@ -1056,7 +1056,7 @@ function renderStoreCash() {
     for (const [seller, d] of Object.entries(bySeller).sort((a, b) => b[1].sum - a[1].sum)) {
       html += `<div class="row">
         <span class="nm">👤 ${esc(seller)}</span>
-        <span class="badge b-violet">${d.count} раз • ${fmt(d.sum)} сум${d.markup > 0 ? ' • наценка +' + fmt(d.markup) : ''}</span>
+        <span class="badge b-violet">${d.count} раз • ${fmt(d.sum)} сум${d.markup > 0 && currentUser === 'SANAT' ? ' • наценка +' + fmt(d.markup) : ''}</span>
       </div>`;
     }
     html += '</div>';
@@ -1074,7 +1074,7 @@ function renderStoreCash() {
     const parts = [];
     if (p.cash > 0) parts.push('нал ' + fmt(p.cash));
     if (p.transfer > 0) parts.push('перевод ' + fmt(p.transfer));
-    if (p.credit > 0) parts.push('кредит ' + fmt(p.credit) + (p.markup > 0 ? ' (наценка +' + fmt(p.markup) + ')' : ''));
+    if (p.credit > 0) parts.push('кредит ' + fmt(p.credit) + (p.markup > 0 && currentUser === 'SANAT' ? ' (наценка +' + fmt(p.markup) + ')' : ''));
     html += `<div class="row" style="display:block;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
         <span class="nm">${esc(s.productName) || 'Товар'}</span>
