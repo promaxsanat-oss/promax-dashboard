@@ -981,7 +981,8 @@ function renderStoreCash() {
   // ----- Касса по отделам -----
   const deptNames = { phone: '📱 Телефоны', laptop: '💻 Ноутбуки', part: '🔧 Запчасти', accessory: '🎧 Аксессуары', drink: '🥤 Напитки', tablet: '📟 Планшеты', other: '📦 Прочее' };
   const deptOrder = ['phone', 'laptop', 'part', 'accessory', 'drink', 'tablet', 'other'];
-  const depts = deptOrder.filter(c => byDept[c]).concat(Object.keys(byDept).filter(c => !deptOrder.includes(c)));
+  const canSeeLaptop = currentUser === 'SANAT' || currentUser === 'SHOXRUX'; // ноутбучный отдел — только владельцы
+  const depts = deptOrder.filter(c => byDept[c] && (canSeeLaptop || c !== 'laptop')).concat(Object.keys(byDept).filter(c => !deptOrder.includes(c)));
   if (depts.length > 0) {
     html += '<div class="card"><div class="card-head"><span>🏢 Касса по отделам</span><span class="badge b-violet">наличные без расходов</span></div>';
     for (const c of depts) {
@@ -1013,6 +1014,8 @@ function renderStoreCash() {
   }
   html += '</div>';
 
+  // ----- Касса ноутбуков: отдельная, видят только SHOXRUX и SANAT -----
+  if (currentUser === 'SANAT' || currentUser === 'SHOXRUX') {
   const lapD = byDept['laptop'];
   const LAPTOP_FUND_PER_SALE = 50000; // 50 000 сум с каждого проданного ноутбука (за штуку)
   const lapCount = lapQty;            // фонд считаем строго по штукам
@@ -1030,7 +1033,8 @@ function renderStoreCash() {
   } else {
     html += '<div class="empty">Продаж ноутбуков пока нет</div>';
   }
-  if (currentUser === 'SANAT') {
+  // Фонд и историю видят оба владельца ноутбучного отдела: SHOXRUX и SANAT
+  {
     html += `<div class="row" style="display:block;background:rgba(139,92,246,0.08);">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
         <span class="nm">💰 Фонд с продаж ноутбуков</span>
@@ -1058,6 +1062,7 @@ function renderStoreCash() {
     }
   }
   html += '</div>';
+  }
   if (Object.keys(byCompany).length > 0) {
     const compIcons = { 'Ishonch': '🤝', 'Uzum': '🟣', 'Alif': '🟢', 'Кредит': '📝' };
     html += '<div class="card"><div class="card-head"><span>🏦 Кредиты по компаниям</span><span class="badge b-amber">' + fmt(creditOut) + ' сум</span></div>';
