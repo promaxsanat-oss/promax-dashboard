@@ -231,6 +231,11 @@ body {
 <div id="home" class="hidden">
   <div class="net-summary" id="netSummary"></div>
   <div id="homeStatus"></div>
+  <!-- Поиск по всем магазинам — только для админа -->
+  <div id="adminSearchBox" class="hidden page" style="margin-bottom:16px;">
+    <input type="text" class="search-box" id="globalSearch" placeholder="🔍 Поиск по всем магазинам: название, IMEI, серийник, штрихкод..." oninput="renderGlobalSearch()">
+    <div id="globalResults" style="margin-top:12px;"></div>
+  </div>
   <div class="store-grid" id="storeGrid"></div>
 </div>
 
@@ -244,6 +249,7 @@ body {
   <div class="tabs">
     <div class="tab active" onclick="showStoreTab('stock')" id="tab-stock">📦 Остатки</div>
     <div class="tab" onclick="showStoreTab('sales')" id="tab-sales">💰 Продажи</div>
+    <div class="tab" onclick="showStoreTab('cash')" id="tab-cash">💵 Касса</div>
     <div class="tab" onclick="showStoreTab('debts')" id="tab-debts">💳 Долги</div>
     <div class="tab" onclick="showStoreTab('expenses')" id="tab-expenses">💸 Расходы</div>
     <div class="tab" onclick="showStoreTab('barters')" id="tab-barters">🔄 Бартеры</div>
@@ -419,11 +425,58 @@ async function doLogin() {
     errEl.textContent = '';
     document.getElementById('login').classList.add('hidden');
     document.getElementById('home').classList.remove('hidden');
+    // Единый поиск по всем магазинам — только админу
+    document.getElementById('adminSearchBox').classList.toggle('hidden', u !== 'SANAT');
     await autoLoadAll(false);
     startAutoRefresh();
   } else {
     errEl.textContent = 'Неверный логин или пароль';
   }
+}
+
+/* ---------- Единый поиск по всем трём базам (админ) ---------- */
+function renderGlobalSearch() {
+  const box = document.getElementById('globalResults');
+  const q = document.getElementById('globalSearch').value.trim().toLowerCase();
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  const qs = q.replace(/'/g, "''");
+
+  let totalFound = 0;
+  let html = '';
+  for (const [storeId, name] of Object.entries(storeNames)) {
+    const info = storeDbs[storeId];
+    if (!info) continue;
+    // Точное совпадение IMEI/штрихкода — первым, затем по названию
+    const rows = execToObjects(info.db,
+      "SELECT name, category, imei, barcode, quantity, salePrice, updatedAt FROM products " +
+      "WHERE LOWER(name) LIKE '%" + qs + "%' OR LOWER(imei) LIKE '%" + qs + "%' OR LOWER(barcode) LIKE '%" + qs + "%' " +
+      "ORDER BY CASE WHEN LOWER(imei) = '" + qs + "' OR LOWER(barcode) = '" + qs + "' THEN 0 " +
+      "WHEN quantity > 0 THEN 1 ELSE 2 END, name LIMIT 50");
+    if (rows.length === 0) continue;
+    totalFound += rows.length;
+    const inStock = rows.filter(r => (Number(r.quantity) || 0) > 0).length;
+    html += `<div class="card">
+      <div class="card-head"><span>🏪 ${esc(name)}</span>
+      <span class="badge ${inStock > 0 ? 'b-green' : 'b-red'}">${rows.length} найдено • в наличии ${inStock}</span></div>`;
+    for (const p of rows) {
+      const qty = Number(p.quantity) || 0;
+      const details = [p.imei, p.barcode && p.barcode !== p.imei ? p.barcode : null].filter(Boolean).join(' • ');
+      html += `<div class="row">
+        <div style="flex:1;min-width:140px;">
+          <div class="nm">${esc(p.name) || 'Без названия'}</div>
+          ${details ? '<div class="sub2">' + esc(details) + '</div>' : ''}
+        </div>
+        <span class="badge ${qty > 0 ? 'b-green' : 'b-red'}">${qty > 0 ? 'В НАЛИЧИИ: ' + qty + ' шт. • ' + fmt(p.salePrice) + ' сум' : 'ПРОДАН / НЕТ'}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  if (totalFound === 0) {
+    html = '<div class="empty">🔍 «' + esc(q) + '» — ничего не найдено ни в одном магазине</div>';
+  } else {
+    html = '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">🔍 «' + esc(q) + '»: найдено ' + totalFound + ' совпадений</div>' + html;
+  }
+  box.innerHTML = html;
 }
 
 function startAutoRefresh() {
@@ -434,6 +487,8 @@ function startAutoRefresh() {
     }
     if (!document.getElementById('home').classList.contains('hidden')) renderHome();
     else if (currentStoreId) renderStoreData();
+    const gs = document.getElementById('globalSearch');
+    if (gs && gs.value.trim().length >= 2 && !document.getElementById('home').classList.contains('hidden')) renderGlobalSearch();
   }, AUTO_REFRESH_MS);
 }
 
@@ -494,7 +549,7 @@ function goHome() {
 }
 function showStoreTab(tab) {
   currentStoreTab = tab;
-  ['stock','sales','debts','expenses','barters','reminders','report'].forEach(t => {
+  ['stock','sales','cash','debts','expenses','barters','reminders','report'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
   });
   renderStoreData();
@@ -516,6 +571,7 @@ function renderStoreData() {
   try {
     if (currentStoreTab === 'stock') renderStoreStock();
     else if (currentStoreTab === 'sales') renderStoreSales();
+    else if (currentStoreTab === 'cash') renderStoreCash();
     else if (currentStoreTab === 'debts') renderStoreDebts();
     else if (currentStoreTab === 'expenses') renderStoreExpenses();
     else if (currentStoreTab === 'barters') renderStoreBarters();
@@ -623,6 +679,112 @@ function renderStoreSales() {
     }
     html += '</div>';
   }
+  document.getElementById('storeContent').innerHTML = html;
+}
+
+/* ---------- Касса: разбор типа оплаты по комментарию ---------- */
+// Комментарии заполняются вручную: "ishonch 11404000", "clik", "nalichiga" и т.п.
+// Поэтому расчёт приблизительный: ищем ключевые слова и сумму рядом с ними.
+function classifyPayment(comment, total) {
+  const c = (' ' + (comment || '').toLowerCase() + ' ');
+  const creditWords = ['ishonch', 'kredit', 'кредит', 'nasiya', 'nassiya', 'rassroch', 'рассроч', 'dolg', 'долг', 'qarz'];
+  const transferWords = ['clik', 'click', 'kilk', 'klik', 'perevod', 'перевод', 'payme', 'uzum', 'karta', 'карт', 'terminal'];
+  const cashWords = ['nalichi', 'налич', 'cash'];
+  const hasCredit = creditWords.some(w => c.includes(w));
+  const hasTransfer = transferWords.some(w => c.includes(w));
+  const hasCash = cashWords.some(w => c.includes(w));
+
+  // Числа в комментарии (с пробелами вида "13 600 000")
+  const nums = (c.replace(/[^\d\s]/g, ' ').match(/\d[\d\s]*\d|\d/g) || [])
+    .map(s => Number(s.replace(/\s/g, '')))
+    .filter(n => n > 1000);
+  const part = nums.find(n => n < total) || 0;
+
+  const t = Number(total) || 0;
+  if (hasCredit && !hasTransfer) {
+    if (part > 0) return { cash: t - part, transfer: 0, credit: part, label: 'СМЕШ + КРЕДИТ', cls: 'b-amber' };
+    return { cash: 0, transfer: 0, credit: t, label: 'КРЕДИТ', cls: 'b-amber' };
+  }
+  if (hasTransfer && !hasCredit) {
+    if (part > 0) return { cash: t - part, transfer: part, credit: 0, label: 'СМЕШ + ПЕРЕВОД', cls: 'b-blue' };
+    return { cash: 0, transfer: t, credit: 0, label: 'ПЕРЕВОД', cls: 'b-blue' };
+  }
+  if (hasCredit && hasTransfer) {
+    return { cash: 0, transfer: 0, credit: t, label: 'КРЕДИТ/ПЕРЕВОД', cls: 'b-amber' };
+  }
+  return { cash: t, transfer: 0, credit: 0, label: hasCash ? 'НАЛИЧНЫЕ' : 'НАЛИЧНЫЕ', cls: 'b-green' };
+}
+
+function renderStoreCash() {
+  const db = storeDbs[currentStoreId].db;
+  const query = searchQuery();
+  let sales = execToObjects(db, "SELECT * FROM sales WHERE type = 'sale' ORDER BY date DESC");
+  const expenses = execToObjects(db, 'SELECT * FROM expenses ORDER BY date DESC');
+
+  let cashIn = 0, transferIn = 0, creditOut = 0;
+  const rows = [];
+  for (const s of sales) {
+    const total = Number(s.total) || 0;
+    const p = classifyPayment(s.comment, total);
+    cashIn += p.cash; transferIn += p.transfer; creditOut += p.credit;
+    rows.push({ s, p });
+  }
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const kassa = cashIn - totalExpenses;
+
+  // Движение за сегодня
+  const todayKey = dayKey(new Date().toISOString());
+  let todayCash = 0, todayTransfer = 0, todayCredit = 0;
+  for (const { s, p } of rows) {
+    if (dayKey(s.date) === todayKey) { todayCash += p.cash; todayTransfer += p.transfer; todayCredit += p.credit; }
+  }
+  const todayExpenses = expenses.filter(e => dayKey(e.date) === todayKey).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const todayKassa = todayCash - todayExpenses;
+
+  const kColor = kassa >= 0 ? '#4ade80' : '#f87171';
+  let html = `
+  <div class="net-profit" style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);margin-top:0;">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">💵 КАССА (наличные продажи − расходы)</div>
+    <div style="font-size:30px;font-weight:800;color:${kColor};">${fmt(kassa)} сум</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px;">За сегодня: ${todayKassa >= 0 ? '+' : ''}${fmt(todayKassa)} сум</div>
+  </div>
+  <div class="report-grid">
+    <div class="report-card"><div class="icon">💵</div><div class="label">Наличные (всего)</div><div class="value" style="color:#4ade80;">${fmt(cashIn)} сум</div></div>
+    <div class="report-card"><div class="icon">💳</div><div class="label">Перевод (Click/карта)</div><div class="value" style="color:#60a5fa;">${fmt(transferIn)} сум</div></div>
+    <div class="report-card"><div class="icon">📝</div><div class="label">Кредит (ishonch)</div><div class="value" style="color:#fbbf24;">${fmt(creditOut)} сум</div></div>
+    <div class="report-card"><div class="icon">💸</div><div class="label">Расходы (всего)</div><div class="value" style="color:#f87171;">${fmt(totalExpenses)} сум</div></div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:14px;">
+    ℹ️ Расчёт по комментариям к продажам (ishonch / clik / перевод) — приблизительный.
+    Сегодня: нал ${fmt(todayCash)} • перевод ${fmt(todayTransfer)} • кредит ${fmt(todayCredit)} • расход ${fmt(todayExpenses)}
+  </div>`;
+
+  let filtered = rows;
+  if (query) filtered = rows.filter(({ s }) =>
+    (s.productName || '').toLowerCase().includes(query) ||
+    (s.comment || '').toLowerCase().includes(query) ||
+    (s.sellerName || '').toLowerCase().includes(query));
+
+  html += '<div class="card"><div class="card-head"><span>🧾 Расшифровка продаж</span><span class="badge b-violet">' + filtered.length + '</span></div>';
+  const MAX_ROWS = 200;
+  for (const { s, p } of filtered.slice(0, MAX_ROWS)) {
+    const parts = [];
+    if (p.cash > 0) parts.push('нал ' + fmt(p.cash));
+    if (p.transfer > 0) parts.push('перевод ' + fmt(p.transfer));
+    if (p.credit > 0) parts.push('кредит ' + fmt(p.credit));
+    html += `<div class="row" style="display:block;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span class="nm">${esc(s.productName) || 'Товар'}</span>
+        <span class="badge ${p.cls}">${p.label}</span>
+      </div>
+      <div class="meta">${fmt(s.total)} сум • ${parts.join(' • ')} &nbsp;|&nbsp; 👤 ${esc(s.sellerName) || '—'} &nbsp;|&nbsp; 📅 ${fmtDate(s.date)} ${fmtTime(s.date)}</div>
+      ${s.comment ? '<div class="meta">💬 ' + esc(s.comment) + '</div>' : ''}
+    </div>`;
+  }
+  if (filtered.length > MAX_ROWS) {
+    html += '<div class="row" style="justify-content:center;color:var(--muted);font-size:12px;">…показаны первые ' + MAX_ROWS + ' из ' + filtered.length + ' — уточните поиск</div>';
+  }
+  html += '</div>';
   document.getElementById('storeContent').innerHTML = html;
 }
 
