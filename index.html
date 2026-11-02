@@ -921,7 +921,8 @@ function renderStoreCash() {
   const byDept = {};       // отдел -> {cash, transfer, credit, count}
   const byCompany = {};    // кредитная компания -> {sum, count, markup}
   const bySeller = {};     // сотрудник -> {sum, count, markup} (только кредитные продажи)
-  const lapMonths = {};    // 'YYYY-MM' -> кол-во продаж ноутбуков (для истории фонда)
+  const lapMonths = {};    // 'YYYY-MM' -> шт проданных ноутбуков (для истории фонда)
+  let lapQty = 0;          // всего ноутбуков продано, шт
   for (const s of sales) {
     const total = Number(s.total) || 0;
     const p = classifyPayment(s.comment, total);
@@ -932,8 +933,10 @@ function renderStoreCash() {
     if (!byDept[cat]) byDept[cat] = { cash: 0, transfer: 0, credit: 0, count: 0 };
     byDept[cat].cash += p.cash; byDept[cat].transfer += p.transfer; byDept[cat].credit += p.credit; byDept[cat].count++;
     if (cat === 'laptop') {
+      const q = Number(s.quantity) || 1;
+      lapQty += q;
       const mk = String(s.date || '').slice(0, 7);
-      if (mk.length === 7) lapMonths[mk] = (lapMonths[mk] || 0) + 1;
+      if (mk.length === 7) lapMonths[mk] = (lapMonths[mk] || 0) + q;
     }
 
     if (p.credit > 0) {
@@ -1011,8 +1014,8 @@ function renderStoreCash() {
   html += '</div>';
 
   const lapD = byDept['laptop'];
-  const LAPTOP_FUND_PER_SALE = 50000; // 50 000 сум с каждой продажи ноутбука
-  const lapCount = lapD ? lapD.count : 0;
+  const LAPTOP_FUND_PER_SALE = 50000; // 50 000 сум с каждого проданного ноутбука (за штуку)
+  const lapCount = lapQty;            // фонд считаем строго по штукам
   const lapFund = lapCount * LAPTOP_FUND_PER_SALE;
   const lapFundHalf = Math.round(lapFund / 2);
   html += '<div class="card"><div class="card-head"><span>💻 Касса ноутбуков</span><span class="badge b-green">' + (lapD ? fmt(lapD.cash) + ' сум нал' : '0 сум') + '</span></div>';
@@ -1033,7 +1036,7 @@ function renderStoreCash() {
         <span class="nm">💰 Фонд с продаж ноутбуков</span>
         <span class="badge b-violet">${fmt(lapFund)} сум</span>
       </div>
-      <div class="meta">50 000 сум × ${lapCount} продаж &nbsp;|&nbsp; 👤 SHOXRUX: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b></div>
+      <div class="meta">50 000 сум × ${lapCount} шт &nbsp;|&nbsp; 👤 SHOXRUX: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(lapFundHalf)} сум</b></div>
     </div>`;
     const lapMonthKeys = Object.keys(lapMonths).sort().reverse();
     if (lapMonthKeys.length > 0) {
@@ -1047,7 +1050,7 @@ function renderStoreCash() {
         html += `<div class="row" style="display:block;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
             <span class="nm" style="text-transform:capitalize;">🗓 ${mName}</span>
-            <span class="badge b-violet">${cnt} продаж • фонд ${fmt(mFund)} сум</span>
+            <span class="badge b-violet">${cnt} шт • фонд ${fmt(mFund)} сум</span>
           </div>
           <div class="meta">👤 SHOXRUX: <b style="color:#4ade80">${fmt(mHalf)} сум</b> &nbsp;|&nbsp; 👤 SANAT: <b style="color:#4ade80">${fmt(mHalf)} сум</b></div>
         </div>`;
@@ -1439,6 +1442,48 @@ function renderStoreSellers() {
   });
   html += '</div>';
   if (isAdmin) {
+    // ----- Зарплатная ведомость за месяц (только админ) -----
+    const lap = execToObjects(db,
+      "SELECT COALESCE(SUM(s.quantity),0) qty FROM sales s LEFT JOIN products p ON p.id = s.productId " +
+      "WHERE s.type = 'sale' AND p.category = 'laptop' AND s.date >= ? AND s.date < ?", [monthStart, monthEnd]);
+    const lapQtyM = Number(lap[0] && lap[0].qty) || 0;
+    const LAPTOP_FUND_PER_PC = 50000; // 50 000 сум с каждого проданного ноутбука (за штуку)
+    const fundTotal = lapQtyM * LAPTOP_FUND_PER_PC;
+    const fundHalf = Math.round(fundTotal / 2);
+
+    const payouts = {}; // имя -> {bonus, fund}
+    for (const r of rows) {
+      const nm = (r.sellerName || '—').trim() || '—';
+      payouts[nm] = { bonus: (Number(r.prof) || 0) * SELLER_BONUS_PCT / 100, fund: 0 };
+    }
+    if (fundTotal > 0) {
+      for (const who of ['SHOXRUX', 'SANAT']) {
+        let k = Object.keys(payouts).find(x => x.toUpperCase() === who);
+        if (!k) { payouts[who] = { bonus: 0, fund: 0 }; k = who; }
+        payouts[k].fund += fundHalf;
+      }
+    }
+    const grandTotal = Object.values(payouts).reduce((a, v) => a + v.bonus + v.fund, 0);
+
+    html += '<div class="card"><div class="card-head"><span>💼 Зарплатная ведомость — ' + esc(monthName) + '</span><span class="badge b-amber">только админ</span></div>';
+    for (const [nm, v] of Object.entries(payouts).sort((a, b) => (b[1].bonus + b[1].fund) - (a[1].bonus + a[1].fund))) {
+      const tot = v.bonus + v.fund;
+      html += `<div class="row" style="display:block;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <span class="nm">👤 ${esc(nm)}</span>
+          <span class="badge b-green">${fmt(Math.round(tot))} сум</span>
+        </div>
+        <div class="meta">🏆 бонус 5% от прибыли: ${fmt(Math.round(v.bonus))} сум${v.fund > 0 ? ' &nbsp;|&nbsp; 💻 фонд ноутбуков: ' + fmt(v.fund) + ' сум' : ''}</div>
+      </div>`;
+    }
+    html += `<div class="row" style="background:rgba(74,222,128,0.08);">
+      <span class="nm" style="color:#4ade80;">💵 ИТОГО к выплате за месяц</span>
+      <span class="badge b-green">${fmt(Math.round(grandTotal))} сум</span>
+    </div>`;
+    if (fundTotal > 0) {
+      html += `<div class="meta" style="padding:4px 14px 12px;color:var(--muted);font-size:11px;">💻 Фонд ноутбуков за месяц: ${lapQtyM} шт × 50 000 = ${fmt(fundTotal)} сум (SHOXRUX ${fmt(fundHalf)} + SANAT ${fmt(fundHalf)})</div>`;
+    }
+    html += '</div>';
     html += '<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;">ℹ️ Бонус считается автоматически: 5% от прибыли, которую принёс продавец за выбранный месяц. Видно только админу.</div>';
   }
   document.getElementById('storeContent').innerHTML = html;
