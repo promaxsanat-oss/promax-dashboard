@@ -454,7 +454,7 @@ function renderGlobalSearch() {
     if (!info) continue;
     // Точное совпадение IMEI/штрихкода — первым, затем по названию
     const rows = execToObjects(info.db,
-      "SELECT name, category, imei, barcode, quantity, salePrice, updatedAt FROM products " +
+      "SELECT * FROM products " +
       "WHERE LOWER(name) LIKE '%" + qs + "%' OR LOWER(imei) LIKE '%" + qs + "%' OR LOWER(barcode) LIKE '%" + qs + "%' " +
       "ORDER BY CASE WHEN LOWER(imei) = '" + qs + "' OR LOWER(barcode) = '" + qs + "' THEN 0 " +
       "WHEN quantity > 0 THEN 1 ELSE 2 END, name LIMIT 50");
@@ -476,7 +476,7 @@ function renderGlobalSearch() {
       const details = [p.imei, p.barcode && p.barcode !== p.imei ? p.barcode : null].filter(Boolean).join(' • ');
       html += `<div class="row">
         <div style="flex:1;min-width:140px;">
-          <div class="nm">${esc(p.name) || 'Без названия'}</div>
+          <div class="nm">${esc(p.name) || 'Без названия'}${p.condition === 'used' ? ' <span class="badge b-amber" style="font-size:10px;">♻️ Б/У</span>' : ''}</div>
           ${details ? '<div class="sub2">' + esc(details) + '</div>' : ''}
         </div>
         <span class="badge ${qty > 0 ? 'b-green' : 'b-red'}">${qty > 0 ? 'В НАЛИЧИИ: ' + qty + ' шт. • ' + fmt(p.salePrice) + ' сум' : 'ПРОДАН / НЕТ'}</span>
@@ -785,9 +785,10 @@ function renderStoreStock() {
       <span class="badge b-violet">${items.length} поз. • ${catQty} шт. • ${fmt(catTotal)} сум</span></div>`;
     for (const p of items) {
       const phoneInfo = p.category === 'phone' ? [p.capacity, p.ram, p.batteryHealth, p.imei].filter(Boolean).join(' • ') : '';
+      const condBadge = p.condition === 'used' ? ' <span class="badge b-amber" style="font-size:10px;">♻️ Б/У</span>' : '';
       html += `<div class="row">
         <div style="flex:1;min-width:140px;">
-          <div class="nm">${esc(p.name) || 'Без названия'}</div>
+          <div class="nm">${esc(p.name) || 'Без названия'}${condBadge}</div>
           ${phoneInfo ? '<div class="sub2">' + esc(phoneInfo) + '</div>' : ''}
         </div>
         <span class="badge b-green">${Number(p.quantity) || 0} шт. × ${fmt(p.salePrice)} сум</span>
@@ -1574,7 +1575,7 @@ function renderLaptopOnlyHome() {
   if (stockRows.length === 0) html += '<div class="empty">Ноутбуков на складе пока нет</div>';
   for (const { store, p } of stockRows) {
     html += `<div class="row">
-      <span class="nm">💻 ${esc(p.name)}<div class="meta">🏪 ${esc(store)}${p.ram ? ' • ' + esc(p.ram) : ''}${p.capacity ? ' • ' + esc(p.capacity) : ''}</div></span>
+      <span class="nm">💻 ${esc(p.name)}<div class="meta">🏪 ${esc(store)}${p.ram ? ' • ' + esc(p.ram) : ''}${p.capacity ? ' • ' + esc(p.capacity) : ''}${p.condition === 'used' ? ' • ♻️ Б/У' : ' • ✨ Новый'}</div></span>
       <span class="badge b-green">${p.quantity} шт • ${fmt(p.salePrice)} сум</span>
     </div>`;
   }
